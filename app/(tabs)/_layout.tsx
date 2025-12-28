@@ -35,24 +35,24 @@ export default function TabsLayout() {
           title: 'Home',
           tabBarLabel: 'Home',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons 
-              name={focused ? 'home' : 'home-outline'} 
-              size={24} 
-              color={color} 
+            <Ionicons
+              name={focused ? 'home' : 'home-outline'}
+              size={24}
+              color={color}
             />
           ),
         }}
       />
       <Tabs.Screen
-        name="two"
+        name="devices"
         options={{
           title: 'Devices',
           tabBarLabel: 'Devices',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons 
-              name={focused ? 'list' : 'list-outline'} 
-              size={24} 
-              color={color} 
+            <Ionicons
+              name={focused ? 'list' : 'list-outline'}
+              size={24}
+              color={color}
             />
           ),
         }}
