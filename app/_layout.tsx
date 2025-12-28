@@ -14,48 +14,41 @@ function RootLayoutContent() {
     );
   }
 
-  if (!user) {
-    return (
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          animationEnabled: false,
-        }}
-      >
-        <Stack.Screen
-          name="auth"
-          options={{
-            headerShown: false,
-          }}
-        />
-      </Stack>
-    );
-  }
-
   return (
     <Stack
       screenOptions={{
         animationEnabled: false,
       }}
     >
-      <Stack.Screen
-        name="(tabs)"
-        options={{
-          headerShown: false,
-        }}
-      />
-      <Stack.Screen
-        name="settings"
-        options={{
-          title: 'Settings',
-          headerBackTitle: 'Back',
-          headerTitleStyle: {
-            fontWeight: '700',
-            fontSize: 18,
-          },
-          headerShadowVisible: false,
-        }}
-      />
+      {!user ? (
+        <Stack.Screen
+          name="auth"
+          options={{
+            headerShown: false,
+          }}
+        />
+      ) : (
+        <>
+          <Stack.Screen
+            name="(tabs)"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="settings"
+            options={{
+              title: 'Settings',
+              headerBackTitle: 'Back',
+              headerTitleStyle: {
+                fontWeight: '700',
+                fontSize: 18,
+              },
+              headerShadowVisible: false,
+            }}
+          />
+        </>
+      )}
     </Stack>
   );
 }

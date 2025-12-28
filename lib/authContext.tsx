@@ -16,6 +16,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const initAuth = async () => {
+      try {
+        // Sign out user on app start to always show auth screen
+        await signOut(auth);
+        setUser(null);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error signing out:', error);
+        setLoading(false);
+      }
+    };
+
+    initAuth();
+
+    // Listen for auth changes after initial sign out
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
 

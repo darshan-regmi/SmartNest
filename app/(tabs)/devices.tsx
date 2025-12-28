@@ -1,19 +1,37 @@
-import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, Modal, TextInput, Alert, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, Modal, TextInput, Alert, FlatList, ActivityIndicator, useColorScheme, useWindowDimensions } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../../lib/authContext';
 import { db } from '../../lib/firebase';
-import { collection, addDoc, deleteDoc, doc, getDocs, query, where } from 'firebase/firestore';
+import { collection, addDoc, deleteDoc, doc, getDocs } from 'firebase/firestore';
+
 
 const Colors = {
-  background: '#FCFCF9',
-  surface: '#FFF',
-  text: '#1F2121',
-  textSecondary: '#626C7C',
-  primary: '#208A95',
-  error: '#EF4444',
-  success: '#10B981',
+  light: {
+    background: "#FCFCF9",
+    surface: "#FFFFFF",
+    text: "#1F2121",
+    textSecondary: "#626C7C",
+    primary: "#208A95",
+    error: "#EF4444",
+    success: "#10B981",
+    warning: "#F59E0B",
+    border: "#E5E7EB",
+  },
+  dark: {
+    background: "#1F2121",
+    surface: "#2A2C2C",
+    text: "#F5F5F5",
+    textSecondary: "#A7A9A9",
+    primary: "#32B8C6",
+    error: "#FF5459",
+    success: "#10B981",
+    warning: "#F59E0B",
+    border: "#3A3C3C",
+  },
 };
+
 
 const DEVICES = [
   {
@@ -26,6 +44,7 @@ const DEVICES = [
   },
 ];
 
+
 interface PIN {
   id: string;
   code: string;
@@ -34,8 +53,15 @@ interface PIN {
   firestoreId?: string;
 }
 
+
 export default function DevicesScreen() {
+  const router = useRouter();
   const { user } = useAuth();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const colors = isDark ? Colors.dark : Colors.light;
+  const { height } = useWindowDimensions();
+
   const [selectedDevice, setSelectedDevice] = useState<number | null>(null);
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinCode, setPinCode] = useState('');
@@ -45,46 +71,81 @@ export default function DevicesScreen() {
   const [loading, setLoading] = useState(false);
   const [savingPin, setSavingPin] = useState(false);
 
-  // Load PINs from Firestore on mount
+
   useEffect(() => {
     if (user?.uid) {
       loadPinsFromFirestore();
     }
   }, [user?.uid]);
 
-const loadPinsFromFirestore = async () => {
-  if (!user?.uid) return;
-  
-  setLoading(true);
-  try {
-    const pinsRef = collection(db, 'users', user.uid, 'pins');
-    const querySnapshot = await getDocs(pinsRef);
 
-    const loadedPins: PIN[] = [];
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      loadedPins.push({
-        id: doc.id,
-        code: data.code,
-        name: data.name,
-        createdAt: data.createdAt?.toDate() || new Date(),
-        firestoreId: doc.id,
+  const loadPinsFromFirestore = async () => {
+    if (!user?.uid) return;
+    
+    setLoading(true);
+    try {
+      const pinsRef = collection(db, 'users', user.uid, 'pins');
+      const querySnapshot = await getDocs(pinsRef);
+
+      const loadedPins: PIN[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        loadedPins.push({
+          id: doc.id,
+          code: data.code,
+          name: data.name,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          firestoreId: doc.id,
+        });
       });
-    });
 
-    setPins(loadedPins);
-  } catch (error) {
-    console.error('Error loading PINs:', error);
-    // Don't show alert on first load if collection doesn't exist
-    setPins([]);
-  } finally {
-    setLoading(false);
+      setPins(loadedPins);
+    } catch (error) {
+      console.error('Error loading PINs:', error);
+      setPins([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  // Not authenticated
+  if (!user) {
+    return (
+      <SafeAreaView
+        style={[styles.safeArea, { backgroundColor: colors.background }]}
+      >
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.emptyState, { minHeight: height * 0.8 }]}>
+            <Ionicons name="lock-closed" size={64} color={colors.primary} />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>
+              Sign In Required
+            </Text>
+            <Text
+              style={[styles.emptyDescription, { color: colors.textSecondary }]}
+            >
+              Please sign in to access your smart devices and control pins.
+            </Text>
+            <TouchableOpacity
+              style={[styles.loginButton, { backgroundColor: colors.primary }]}
+              onPress={() => router.push("/auth")}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="log-in" size={18} color="#FFF" />
+              <Text style={styles.loginButtonText}>Sign In</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
   }
-};
 
 
   const handleAddPin = async () => {
-    // Validation
     if (!pinCode.trim()) {
       Alert.alert('Error', 'Please enter a PIN code');
       return;
@@ -117,7 +178,6 @@ const loadPinsFromFirestore = async () => {
 
     setSavingPin(true);
     try {
-      // Add to Firestore
       const pinsRef = collection(db, 'users', user.uid, 'pins');
       const docRef = await addDoc(pinsRef, {
         code: pinCode,
@@ -127,7 +187,6 @@ const loadPinsFromFirestore = async () => {
         updatedAt: new Date(),
       });
 
-      // Add to local state
       const newPin: PIN = {
         id: docRef.id,
         code: pinCode,
@@ -150,6 +209,7 @@ const loadPinsFromFirestore = async () => {
     }
   };
 
+
   const handleDeletePin = (id: string) => {
     Alert.alert(
       'Delete PIN',
@@ -164,6 +224,7 @@ const loadPinsFromFirestore = async () => {
       ]
     );
   };
+
 
   const deletePin = async (id: string) => {
     if (!user?.uid) return;
@@ -180,16 +241,17 @@ const loadPinsFromFirestore = async () => {
     }
   };
 
+
   const renderPinItem = ({ item }: { item: PIN }) => (
-    <View style={styles.pinItem}>
+    <View style={[styles.pinItem, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.pinContent}>
-        <View style={styles.pinIcon}>
-          <Ionicons name="key" size={18} color={Colors.primary} />
+        <View style={[styles.pinIcon, { backgroundColor: `${colors.primary}15` }]}>
+          <Ionicons name="key" size={18} color={colors.primary} />
         </View>
         <View style={styles.pinInfo}>
-          <Text style={styles.pinItemName}>{item.name}</Text>
-          <Text style={styles.pinCode}>••••••</Text>
-          <Text style={styles.pinDate}>
+          <Text style={[styles.pinItemName, { color: colors.text }]}>{item.name}</Text>
+          <Text style={[styles.pinCode, { color: colors.textSecondary }]}>••••••</Text>
+          <Text style={[styles.pinDate, { color: colors.textSecondary }]}>
             Created {item.createdAt.toLocaleDateString()}
           </Text>
         </View>
@@ -198,87 +260,88 @@ const loadPinsFromFirestore = async () => {
         style={styles.deleteButton}
         onPress={() => handleDeletePin(item.id)}
       >
-        <Ionicons name="trash" size={18} color={Colors.error} />
+        <Ionicons name="trash" size={18} color={colors.error} />
       </TouchableOpacity>
     </View>
   );
 
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Your Devices</Text>
-          <Text style={styles.subtitle}>{DEVICES.length} devices connected</Text>
+          <Text style={[styles.title, { color: colors.text }]}>Your Devices</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{DEVICES.length} devices connected</Text>
         </View>
 
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={Colors.primary} />
-            <Text style={styles.loadingText}>Loading PINs...</Text>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading PINs...</Text>
           </View>
         ) : (
           <View style={styles.devicesList}>
             {DEVICES.map((device) => (
               <View key={device.id}>
                 <TouchableOpacity 
-                  style={styles.deviceCard}
+                  style={[styles.deviceCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
                   onPress={() => setSelectedDevice(selectedDevice === device.id ? null : device.id)}
                 >
-                  <View style={styles.deviceIcon}>
-                    <Ionicons name={device.icon as any} size={24} color={Colors.primary} />
+                  <View style={[styles.deviceIcon, { backgroundColor: `${colors.primary}15` }]}>
+                    <Ionicons name={device.icon as any} size={24} color={colors.primary} />
                   </View>
                   <View style={styles.deviceContent}>
-                    <Text style={styles.deviceName}>{device.name}</Text>
-                    <Text style={styles.deviceType}>{device.type}</Text>
+                    <Text style={[styles.deviceName, { color: colors.text }]}>{device.name}</Text>
+                    <Text style={[styles.deviceType, { color: colors.textSecondary }]}>{device.type}</Text>
                   </View>
                   <View style={[styles.statusBadge, { backgroundColor: device.status === 'on' || device.status === 'locked' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(156, 163, 175, 0.1)' }]}>
                     <Text style={[styles.statusText, { color: device.status === 'on' || device.status === 'locked' ? '#10B981' : '#9CA3AF' }]}>
                       {device.status}
                     </Text>
                   </View>
-                  <Ionicons name={selectedDevice === device.id ? "chevron-up" : "chevron-down"} size={20} color={Colors.textSecondary} />
+                  <Ionicons name={selectedDevice === device.id ? "chevron-up" : "chevron-down"} size={20} color={colors.textSecondary} />
                 </TouchableOpacity>
 
                 {selectedDevice === device.id && (
                   <View style={styles.expandedSection}>
-                    <View style={styles.pinManagementCard}>
+                    <View style={[styles.pinManagementCard, { backgroundColor: colors.surface, borderColor: colors.border, borderTopColor: colors.primary }]}>
                       <View style={styles.pinHeader}>
                         <View>
-                          <Text style={styles.pinManagementTitle}>PIN Management</Text>
-                          <Text style={styles.pinManagementSubtitle}>
+                          <Text style={[styles.pinManagementTitle, { color: colors.text }]}>PIN Management</Text>
+                          <Text style={[styles.pinManagementSubtitle, { color: colors.textSecondary }]}>
                             {pins.length}/10 PINs configured
                           </Text>
                         </View>
-                        <View style={styles.pinCountBadge}>
+                        <View style={[styles.pinCountBadge, { backgroundColor: colors.primary }]}>
                           <Text style={styles.pinCount}>{pins.length}</Text>
                         </View>
                       </View>
 
-                      <View style={styles.progressBarContainer}>
+                      <View style={[styles.progressBarContainer, { backgroundColor: colors.border }]}>
                         <View 
                           style={[
                             styles.progressBar, 
-                            { width: `${(pins.length / 10) * 100}%` }
+                            { width: `${(pins.length / 10) * 100}%`, backgroundColor: colors.primary }
                           ]} 
                         />
                       </View>
 
                       {pins.length > 0 ? (
                         <TouchableOpacity
-                          style={styles.listPinsButton}
+                          style={[styles.listPinsButton, { backgroundColor: `${colors.primary}15` }]}
                           onPress={() => setShowPinList(!showPinList)}
                         >
-                          <Ionicons name={showPinList ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.primary} />
-                          <Text style={styles.listPinsButtonText}>
+                          <Ionicons name={showPinList ? 'chevron-up' : 'chevron-down'} size={18} color={colors.primary} />
+                          <Text style={[styles.listPinsButtonText, { color: colors.primary }]}>
                             {showPinList ? 'Hide' : 'View'} Pins ({pins.length})
                           </Text>
                         </TouchableOpacity>
                       ) : (
-                        <Text style={styles.noPinsText}>No PINs added yet</Text>
+                        <Text style={[styles.noPinsText, { color: colors.textSecondary }]}>No PINs added yet</Text>
                       )}
 
                       {showPinList && pins.length > 0 && (
@@ -293,12 +356,12 @@ const loadPinsFromFirestore = async () => {
                       )}
 
                       <TouchableOpacity
-                        style={[styles.addPinButton, pins.length >= 10 && styles.addPinButtonDisabled]}
+                        style={[styles.addPinButton, { backgroundColor: pins.length >= 10 ? '#ccc' : colors.primary }, pins.length >= 10 && styles.addPinButtonDisabled]}
                         onPress={() => setShowPinModal(true)}
                         disabled={pins.length >= 10}
                       >
-                        <Ionicons name="add" size={20} color={pins.length >= 10 ? '#ccc' : '#FFF'} />
-                        <Text style={[styles.addPinButtonText, pins.length >= 10 && { color: '#ccc' }]}>
+                        <Ionicons name="add" size={20} color={pins.length >= 10 ? '#999' : '#FFF'} />
+                        <Text style={[styles.addPinButtonText, pins.length >= 10 && { color: '#999' }]}>
                           {pins.length >= 10 ? 'Maximum PINs Reached' : 'Add New PIN'}
                         </Text>
                       </TouchableOpacity>
@@ -311,7 +374,6 @@ const loadPinsFromFirestore = async () => {
         )}
       </ScrollView>
 
-      {/* Add PIN Modal */}
       <Modal
         visible={showPinModal}
         transparent
@@ -323,9 +385,9 @@ const loadPinsFromFirestore = async () => {
         }}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add New PIN</Text>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Add New PIN</Text>
               <TouchableOpacity
                 onPress={() => {
                   setShowPinModal(false);
@@ -334,29 +396,31 @@ const loadPinsFromFirestore = async () => {
                 }}
                 disabled={savingPin}
               >
-                <Ionicons name="close" size={24} color={Colors.text} />
+                <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.modalBody}>
+            <ScrollView style={styles.modalBody}>
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>PIN Name</Text>
+                <Text style={[styles.inputLabel, { color: colors.text }]}>PIN Name</Text>
                 <TextInput
-                  style={styles.textInput}
+                  style={[styles.textInput, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? colors.background : '#F9FAFB' }]}
                   placeholder="e.g., Guest, Cleaner, Family"
+                  placeholderTextColor={colors.textSecondary}
                   value={pinName}
                   onChangeText={setPinName}
                   maxLength={20}
                   editable={!savingPin}
                 />
-                <Text style={styles.inputHelp}>{pinName.length}/20 characters</Text>
+                <Text style={[styles.inputHelp, { color: colors.textSecondary }]}>{pinName.length}/20 characters</Text>
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>PIN Code</Text>
+                <Text style={[styles.inputLabel, { color: colors.text }]}>PIN Code</Text>
                 <TextInput
-                  style={styles.textInput}
+                  style={[styles.textInput, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? colors.background : '#F9FAFB' }]}
                   placeholder="4-8 digits"
+                  placeholderTextColor={colors.textSecondary}
                   value={pinCode}
                   onChangeText={setPinCode}
                   keyboardType="number-pad"
@@ -364,27 +428,27 @@ const loadPinsFromFirestore = async () => {
                   secureTextEntry
                   editable={!savingPin}
                 />
-                <Text style={styles.inputHelp}>
+                <Text style={[styles.inputHelp, { color: colors.textSecondary }]}>
                   {pinCode.length}/8 digits
                   {pinCode.length > 0 && (
                     pinCode.length >= 4 ? 
-                    <Text style={{ color: Colors.success }}> ✓ Valid</Text> :
-                    <Text style={{ color: Colors.error }}> • Minimum 4 digits required</Text>
+                    <Text style={{ color: colors.success }}> ✓ Valid</Text> :
+                    <Text style={{ color: colors.error }}> • Minimum 4 digits required</Text>
                   )}
                 </Text>
               </View>
 
-              <View style={styles.infoBox}>
-                <Ionicons name="information-circle" size={18} color={Colors.primary} />
-                <Text style={styles.infoText}>
+              <View style={[styles.infoBox, { backgroundColor: `${colors.primary}15` }]}>
+                <Ionicons name="information-circle" size={18} color={colors.primary} />
+                <Text style={[styles.infoText, { color: colors.primary }]}>
                   PIN codes must be 4-8 digits long and contain only numbers.
                 </Text>
               </View>
-            </View>
+            </ScrollView>
 
-            <View style={styles.modalFooter}>
+            <View style={[styles.modalFooter, { borderTopColor: colors.border }]}>
               <TouchableOpacity
-                style={styles.cancelButton}
+                style={[styles.cancelButton, { borderColor: colors.border }]}
                 onPress={() => {
                   setShowPinModal(false);
                   setPinCode('');
@@ -392,10 +456,10 @@ const loadPinsFromFirestore = async () => {
                 }}
                 disabled={savingPin}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text style={[styles.cancelButtonText, { color: colors.text }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.createButton, savingPin && styles.createButtonDisabled]}
+                style={[styles.createButton, { backgroundColor: colors.primary }, savingPin && styles.createButtonDisabled]}
                 onPress={handleAddPin}
                 disabled={savingPin}
               >
@@ -416,10 +480,10 @@ const loadPinsFromFirestore = async () => {
   );
 }
 
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.background,
   },
   container: {
     flex: 1,
@@ -438,7 +502,6 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 14,
-    color: Colors.textSecondary,
     fontWeight: '500',
   },
   header: {
@@ -447,31 +510,26 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: Colors.text,
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 14,
-    color: Colors.textSecondary,
     fontWeight: '500',
   },
   devicesList: {
     gap: 10,
   },
   deviceCard: {
-    backgroundColor: Colors.surface,
     borderRadius: 12,
     padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
   },
   deviceIcon: {
     width: 44,
     height: 44,
     borderRadius: 10,
-    backgroundColor: 'rgba(32, 138, 149, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -482,12 +540,10 @@ const styles = StyleSheet.create({
   deviceName: {
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.text,
     marginBottom: 2,
   },
   deviceType: {
     fontSize: 12,
-    color: Colors.textSecondary,
     textTransform: 'capitalize',
   },
   statusBadge: {
@@ -506,13 +562,10 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   pinManagementCard: {
-    backgroundColor: Colors.surface,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
     borderTopWidth: 2,
-    borderTopColor: Colors.primary,
   },
   pinHeader: {
     flexDirection: 'row',
@@ -523,15 +576,12 @@ const styles = StyleSheet.create({
   pinManagementTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: Colors.text,
     marginBottom: 2,
   },
   pinManagementSubtitle: {
     fontSize: 12,
-    color: Colors.textSecondary,
   },
   pinCountBadge: {
-    backgroundColor: Colors.primary,
     borderRadius: 20,
     width: 40,
     height: 40,
@@ -545,18 +595,15 @@ const styles = StyleSheet.create({
   },
   progressBarContainer: {
     height: 6,
-    backgroundColor: '#E5E7EB',
     borderRadius: 3,
     marginBottom: 12,
     overflow: 'hidden',
   },
   progressBar: {
     height: '100%',
-    backgroundColor: Colors.primary,
   },
   noPinsText: {
     fontSize: 13,
-    color: Colors.textSecondary,
     textAlign: 'center',
     paddingVertical: 12,
     fontStyle: 'italic',
@@ -566,13 +613,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 10,
     paddingHorizontal: 12,
-    backgroundColor: 'rgba(32, 138, 149, 0.08)',
     borderRadius: 8,
     marginBottom: 12,
     gap: 8,
   },
   listPinsButtonText: {
-    color: Colors.primary,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -583,12 +628,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#F9FAFB',
     borderRadius: 10,
     padding: 12,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
   },
   pinContent: {
     flex: 1,
@@ -600,7 +643,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: 'rgba(32, 138, 149, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -610,24 +652,20 @@ const styles = StyleSheet.create({
   pinItemName: {
     fontSize: 13,
     fontWeight: '600',
-    color: Colors.text,
     marginBottom: 2,
   },
   pinCode: {
     fontSize: 12,
-    color: Colors.textSecondary,
     fontWeight: '500',
     marginBottom: 2,
   },
   pinDate: {
     fontSize: 11,
-    color: Colors.textSecondary,
   },
   deleteButton: {
     padding: 8,
   },
   addPinButton: {
-    backgroundColor: Colors.primary,
     borderRadius: 10,
     paddingVertical: 12,
     flexDirection: 'row',
@@ -636,7 +674,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   addPinButtonDisabled: {
-    backgroundColor: '#D1D5DB',
+    opacity: 0.6,
   },
   addPinButtonText: {
     color: '#FFF',
@@ -649,7 +687,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: Colors.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: '80%',
@@ -661,12 +698,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: Colors.text,
   },
   modalBody: {
     paddingHorizontal: 16,
@@ -678,28 +713,22 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: 13,
     fontWeight: '600',
-    color: Colors.text,
     marginBottom: 8,
   },
   textInput: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
-    color: Colors.text,
-    backgroundColor: '#F9FAFB',
     marginBottom: 6,
   },
   inputHelp: {
     fontSize: 11,
-    color: Colors.textSecondary,
   },
   infoBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(32, 138, 149, 0.1)',
     borderRadius: 10,
     padding: 12,
     gap: 10,
@@ -707,7 +736,6 @@ const styles = StyleSheet.create({
   infoText: {
     flex: 1,
     fontSize: 12,
-    color: Colors.primary,
     fontWeight: '500',
   },
   modalFooter: {
@@ -716,37 +744,69 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
   },
   cancelButton: {
     flex: 1,
     paddingVertical: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
     alignItems: 'center',
   },
   cancelButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.text,
   },
   createButton: {
     flex: 1,
     paddingVertical: 12,
     borderRadius: 10,
-    backgroundColor: Colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
   createButtonDisabled: {
-    backgroundColor: 'rgba(32, 138, 149, 0.6)',
+    opacity: 0.6,
   },
   createButtonText: {
     fontSize: 14,
     fontWeight: '600',
     color: '#FFF',
+  },
+  emptyState: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 20,
+  },
+  emptyTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  emptyDescription: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  loginButton: {
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 16,
+    shadowColor: '#208A95',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  loginButtonText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
