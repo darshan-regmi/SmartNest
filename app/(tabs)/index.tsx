@@ -9,12 +9,15 @@ import {
   ActivityIndicator,
   RefreshControl,
   useWindowDimensions,
+  useColorScheme,
+  Alert,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useAuth } from "../../lib/authContext";
-import { useColorScheme } from "react-native";
+import { signOut } from "firebase/auth";
+import { auth } from "../../lib/firebase";
 
 // ============================================
 // COLORS & DESIGN TOKENS
@@ -26,22 +29,30 @@ const Colors = {
     surface: "#FFFFFF",
     text: "#1F2121",
     textSecondary: "#626C7C",
+    tertiary: "#8B93A1",
     primary: "#208A95",
+    primaryLight: "#E0F7FA",
     error: "#EF4444",
+    errorLight: "#FEE2E2",
     success: "#10B981",
     warning: "#F59E0B",
     border: "#E5E7EB",
+    overlay: "rgba(31, 33, 33, 0.04)",
   },
   dark: {
     background: "#1F2121",
     surface: "#2A2C2C",
     text: "#F5F5F5",
     textSecondary: "#A7A9A9",
+    tertiary: "#7A7E7E",
     primary: "#32B8C6",
+    primaryLight: "#1B4D54",
     error: "#FF5459",
+    errorLight: "#3B1A1C",
     success: "#10B981",
     warning: "#F59E0B",
     border: "#3A3C3C",
+    overlay: "rgba(255, 255, 255, 0.04)",
   },
 };
 
@@ -72,7 +83,7 @@ interface StatItem {
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user, logout, isLoading } = useAuth();
+  const { user, isLoading } = useAuth();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const { height } = useWindowDimensions();
@@ -82,6 +93,7 @@ export default function HomeScreen() {
 
   // State
   const [refreshing, setRefreshing] = React.useState(false);
+  const [loggingOut, setLoggingOut] = React.useState(false);
   const [stats, setStats] = React.useState({
     alerts: 0,
   });
@@ -90,14 +102,11 @@ export default function HomeScreen() {
   // EFFECTS
   // ============================================
 
-  /**
-   * Refetch data when screen is focused
-   * Useful for keeping data fresh when user returns from other screens
-   */
   useFocusEffect(
     useCallback(() => {
-      // Load fresh data when screen comes into focus
-      loadDashboardData();
+      if (user) {
+        loadDashboardData();
+      }
     }, [user])
   );
 
@@ -106,14 +115,7 @@ export default function HomeScreen() {
   // ============================================
 
   const loadDashboardData = useCallback(async () => {
-    // TODO: Fetch from Firebase/API
     try {
-      // Simulated data loading
-      // In production, fetch from:
-      // - Firestore collection: users/{userId}/devices
-      // - Firestore collection: users/{userId}/alerts
-      // - Firestore collection: users/{userId}/automations
-
       setStats({
         alerts: 0,
       });
@@ -132,26 +134,39 @@ export default function HomeScreen() {
   }, []);
 
   const handleLogout = useCallback(async () => {
-    try {
-      await logout();
-      router.replace("/auth");
-    } catch (error) {
-      console.error("Logout failed:", error);
-    }
+    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
+      {
+        text: "Cancel",
+        onPress: () => {},
+        style: "cancel",
+      },
+      {
+        text: "Sign Out",
+        onPress: async () => {
+          setLoggingOut(true);
+          try {
+            await signOut(auth);
+            // Auth state change will automatically trigger redirect
+            // via useAuth context - no manual router.replace needed
+          } catch (error) {
+            console.error("Logout failed:", error);
+            Alert.alert("Error", "Failed to sign out. Please try again.");
+            setLoggingOut(false);
+          }
+        },
+        style: "destructive",
+      },
+    ]);
   }, []);
 
   const handleNavigateToSettings = useCallback(() => {
     router.push("/settings");
-  }, []);
+  }, [router]);
 
   // ============================================
   // MEMOIZED DATA
   // ============================================
 
-  /**
-   * Quick access items - navigation shortcuts
-   * Memoized to prevent unnecessary recalculations
-   */
   const quickAccessItems = useMemo<QuickAccessItem[]>(
     () => [
       {
@@ -165,10 +180,6 @@ export default function HomeScreen() {
     [stats]
   );
 
-  /**
-   * Dashboard statistics
-   * Memoized for performance
-   */
   const statItems = useMemo<StatItem[]>(
     () => [
       {
@@ -191,17 +202,23 @@ export default function HomeScreen() {
       <View style={styles.headerTop}>
         <View style={styles.greetingContainer}>
           <Text style={[styles.greeting, { color: colors.textSecondary }]}>
-            Welcome Back!
+            Welcome Back
           </Text>
           <Text style={[styles.name, { color: colors.text }]}>
-            {user?.displayName || user?.email?.split("@") || "User"}
+            {user?.displayName || "User"}
           </Text>
         </View>
         <TouchableOpacity
-          style={[styles.logoutButton, { backgroundColor: colors.error }]}
+          style={[styles.logoutButton, { backgroundColor: colors.errorLight }]}
           onPress={handleLogout}
+          disabled={loggingOut}
+          activeOpacity={0.8}
         >
-          <Ionicons name="log-out" size={18} color="#FFF" />
+          {loggingOut ? (
+            <ActivityIndicator size="small" color={colors.error} />
+          ) : (
+            <Ionicons name="log-out" size={20} color={colors.error} />
+          )}
         </TouchableOpacity>
       </View>
     </View>
@@ -214,10 +231,20 @@ export default function HomeScreen() {
           key={stat.id}
           style={[
             styles.stat,
-            { backgroundColor: colors.surface, borderColor: colors.border },
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+            },
           ]}
         >
-          <Ionicons name={stat.icon} size={28} color={stat.color} />
+          <View
+            style={[
+              styles.statIconContainer,
+              { backgroundColor: `${stat.color}15` },
+            ]}
+          >
+            <Ionicons name={stat.icon} size={32} color={stat.color} />
+          </View>
           <Text style={[styles.statValue, { color: colors.text }]}>
             {stat.value}
           </Text>
@@ -246,17 +273,17 @@ export default function HomeScreen() {
               },
             ]}
             onPress={() => item.route && router.push(item.route)}
-            activeOpacity={0.7}
+            activeOpacity={0.6}
           >
             <View
               style={[
                 styles.quickIcon,
                 {
-                  backgroundColor: `${colors.primary}15`,
+                  backgroundColor: `${colors.primary}12`,
                 },
               ]}
             >
-              <Ionicons name={item.icon} size={24} color={colors.primary} />
+              <Ionicons name={item.icon} size={26} color={colors.primary} />
             </View>
             <View style={styles.quickContent}>
               <Text
@@ -266,7 +293,7 @@ export default function HomeScreen() {
                 {item.title}
               </Text>
               <Text
-                style={[styles.quickDesc, { color: colors.textSecondary }]}
+                style={[styles.quickDesc, { color: colors.tertiary }]}
                 numberOfLines={1}
               >
                 {item.description}
@@ -274,8 +301,8 @@ export default function HomeScreen() {
             </View>
             <Ionicons
               name="chevron-forward"
-              size={20}
-              color={colors.textSecondary}
+              size={18}
+              color={colors.tertiary}
             />
           </TouchableOpacity>
         ))}
@@ -297,17 +324,20 @@ export default function HomeScreen() {
           },
         ]}
         onPress={handleNavigateToSettings}
-        activeOpacity={0.7}
+        activeOpacity={0.6}
       >
-        <Ionicons name="settings" size={20} color={colors.primary} />
+        <View
+          style={[
+            styles.settingsIcon,
+            { backgroundColor: `${colors.primary}12` },
+          ]}
+        >
+          <Ionicons name="settings" size={22} color={colors.primary} />
+        </View>
         <Text style={[styles.settingsButtonText, { color: colors.text }]}>
           Settings & Preferences
         </Text>
-        <Ionicons
-          name="chevron-forward"
-          size={20}
-          color={colors.textSecondary}
-        />
+        <Ionicons name="chevron-forward" size={18} color={colors.tertiary} />
       </TouchableOpacity>
     </View>
   );
@@ -320,15 +350,15 @@ export default function HomeScreen() {
       >
         <View style={[styles.loadingContainer, { minHeight: height }]}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.loadingText, { color: colors.text }]}>
-            Loading...
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+            Loading your dashboard
           </Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  // Not authenticated
+  // Not authenticated - No tabs shown
   if (!user) {
     return (
       <SafeAreaView
@@ -340,7 +370,14 @@ export default function HomeScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={[styles.emptyState, { minHeight: height * 0.8 }]}>
-            <Ionicons name="lock-closed" size={64} color={colors.primary} />
+            <View
+              style={[
+                styles.emptyIcon,
+                { backgroundColor: colors.primaryLight },
+              ]}
+            >
+              <Ionicons name="lock-closed" size={56} color={colors.primary} />
+            </View>
             <Text style={[styles.emptyTitle, { color: colors.text }]}>
               Sign In Required
             </Text>
@@ -351,8 +388,8 @@ export default function HomeScreen() {
             </Text>
             <TouchableOpacity
               style={[styles.loginButton, { backgroundColor: colors.primary }]}
-              onPress={() => router.push("/auth")}
-              activeOpacity={0.8}
+              onPress={() => router.push("/(auth)/index")}
+              activeOpacity={0.85}
             >
               <Ionicons name="log-in" size={18} color="#FFF" />
               <Text style={styles.loginButtonText}>Sign In</Text>
@@ -363,7 +400,7 @@ export default function HomeScreen() {
     );
   }
 
-  // Authenticated - Main content
+  // Authenticated - Main content with tabs
   return (
     <SafeAreaView
       style={[styles.safeArea, { backgroundColor: colors.background }]}
@@ -402,56 +439,68 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 12,
     paddingBottom: 40,
   },
   loadingContainer: {
     justifyContent: "center",
     alignItems: "center",
-    gap: 16,
+    gap: 12,
   },
   loadingText: {
     fontSize: 14,
     fontWeight: "500",
+    letterSpacing: 0.2,
   },
   emptyState: {
     justifyContent: "center",
     alignItems: "center",
     gap: 16,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
+  },
+  emptyIcon: {
+    width: 96,
+    height: 96,
+    borderRadius: 32,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 8,
   },
   emptyTitle: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: "700",
     textAlign: "center",
+    letterSpacing: -0.4,
   },
   emptyDescription: {
-    fontSize: 14,
+    fontSize: 15,
     textAlign: "center",
-    lineHeight: 20,
+    lineHeight: 22,
+    letterSpacing: 0.1,
   },
   loginButton: {
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    marginTop: 16,
+    gap: 10,
+    marginTop: 24,
     shadowColor: "#208A95",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 6,
   },
   loginButtonText: {
     color: "#FFF",
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "600",
+    letterSpacing: 0.3,
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 28,
   },
   headerTop: {
     flexDirection: "row",
@@ -462,112 +511,137 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   greeting: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "500",
-    marginBottom: 4,
+    letterSpacing: 0.2,
+    marginBottom: 2,
   },
   name: {
     fontSize: 28,
     fontWeight: "700",
+    letterSpacing: -0.5,
     textTransform: "capitalize",
   },
   logoutButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 2,
   },
   statsContainer: {
     flexDirection: "row",
     gap: 12,
-    marginBottom: 24,
+    marginBottom: 28,
   },
   stat: {
     flex: 1,
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
     alignItems: "center",
     borderWidth: 1,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
     elevation: 1,
   },
+  statIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 8,
+  },
   statValue: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "700",
-    marginTop: 8,
     marginBottom: 4,
+    letterSpacing: -0.3,
   },
   statLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "500",
+    letterSpacing: 0.3,
   },
   section: {
-    marginBottom: 24,
+    marginBottom: 28,
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "700",
-    marginBottom: 12,
+    marginBottom: 14,
+    letterSpacing: -0.2,
   },
   quickAccessGrid: {
     gap: 12,
   },
   quickCard: {
-    borderRadius: 10,
-    padding: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  quickIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  quickContent: {
-    flex: 1,
-  },
-  quickTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
-  quickDesc: {
-    fontSize: 12,
-  },
-  settingsButton: {
-    borderRadius: 10,
+    borderRadius: 14,
     padding: 14,
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
     gap: 12,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 2,
+    shadowRadius: 3,
     elevation: 1,
+  },
+  quickIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  quickContent: {
+    flex: 1,
+  },
+  quickTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    marginBottom: 3,
+    letterSpacing: -0.2,
+  },
+  quickDesc: {
+    fontSize: 13,
+    letterSpacing: 0.1,
+  },
+  settingsButton: {
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    gap: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  settingsIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    flexShrink: 0,
   },
   settingsButtonText: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "600",
+    letterSpacing: -0.2,
   },
 });
