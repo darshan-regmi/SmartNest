@@ -1,6 +1,6 @@
 import React from "react";
 import { Stack } from "expo-router";
-import { ActivityIndicator, View, useColorScheme } from "react-native";
+import { useColorScheme } from "react-native";
 import { AuthProvider, useAuth } from "../lib/authContext";
 
 // ============================================
@@ -25,73 +25,35 @@ const Colors = {
 // ============================================
 
 function RootLayoutContent() {
-  const { user, isLoading } = useAuth();
+  const { user } = useAuth();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
 
-  // Loading state
-  if (isLoading) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          justifyContent: "center",
-          alignItems: "center",
-          backgroundColor: colors.background,
-        }}
-      >
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
-  }
-
-  // Not authenticated - show auth stack
-  if (!user) {
-    return (
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          animationEnabled: true,
-          cardStyle: {
-            backgroundColor: colors.background,
-          },
-          gestureEnabled: false,
-        }}
-      >
-        <Stack.Screen
-          name="(auth)"
-          options={{
-            headerShown: false,
-            gestureEnabled: false,
-          }}
-        />
-      </Stack>
-    );
-  }
-
-  // Authenticated - show tabs + settings
+  // Always render all screens, let navigation handle routing
+  // Not authenticated users will see auth screen
+  // Authenticated users will see tabs
   return (
     <Stack
       screenOptions={{
-        headerShown: true,
+        headerShown: false,
         animationEnabled: true,
         cardStyle: {
           backgroundColor: colors.background,
         },
-        headerStyle: {
-          backgroundColor: colors.background,
-        },
-        headerTintColor: colors.primary,
-        headerTitleStyle: {
-          fontWeight: "700",
-          fontSize: 18,
-          color: colors.text,
-        },
-        headerShadowVisible: false,
+        gestureEnabled: false,
       }}
     >
-      {/* Tabs (Home, Devices) */}
+      {/* Auth Stack - Always first so it's the initial route */}
+      <Stack.Screen
+        name="(auth)"
+        options={{
+          headerShown: false,
+          gestureEnabled: false,
+        }}
+      />
+
+      {/* Tabs Stack */}
       <Stack.Screen
         name="(tabs)"
         options={{
@@ -104,10 +66,20 @@ function RootLayoutContent() {
       <Stack.Screen
         name="settings"
         options={{
+          headerShown: true,
+          headerStyle: {
+            backgroundColor: colors.background,
+          },
+          headerTintColor: colors.primary,
+          headerTitleStyle: {
+            fontWeight: "700",
+            fontSize: 18,
+            color: colors.text,
+          },
+          headerShadowVisible: false,
           title: "Settings",
           headerBackTitle: "Back",
           presentation: "card",
-          animationEnabled: true,
         }}
       />
     </Stack>

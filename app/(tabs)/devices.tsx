@@ -339,7 +339,7 @@ export default function DevicesScreen() {
             </Text>
             <TouchableOpacity
               style={[styles.loginButton, { backgroundColor: colors.primary }]}
-              onPress={() => router.push("/(auth)/index")}
+              onPress={() => router.push("/auth")}
               activeOpacity={0.85}
             >
               <Ionicons name="log-in" size={18} color="#FFF" />
