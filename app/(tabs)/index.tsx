@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from "react";
+import React, { useMemo, useCallback, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -18,6 +18,10 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useAuth } from "../../lib/authContext";
 import { signOut } from "firebase/auth";
 import { auth } from "../../lib/firebase";
+import { getFirestore, doc, setDoc, onSnapshot } from "firebase/firestore";
+
+// Initialize Firestore
+const db = getFirestore();
 
 // ============================================
 // COLORS & DESIGN TOKENS
@@ -97,6 +101,10 @@ export default function HomeScreen() {
   const [stats, setStats] = React.useState({
     alerts: 0,
   });
+  
+  // Door control state
+  const [doorOpen, setDoorOpen] = useState(false);
+  const [doorLoading, setDoorLoading] = useState(false);
 
   // ============================================
   // EFFECTS
@@ -109,6 +117,23 @@ export default function HomeScreen() {
       }
     }, [user])
   );
+
+  // Listen to door state changes from Firestore
+  useEffect(() => {
+    if (!user) return;
+
+    const doorDocRef = doc(db, "doors", "mainDoor");
+    
+    const unsubscribe = onSnapshot(doorDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setDoorOpen(docSnap.data().isOpen || false);
+      }
+    }, (error) => {
+      console.error("Error listening to door state:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   // ============================================
   // HANDLERS
@@ -133,6 +158,29 @@ export default function HomeScreen() {
     }
   }, []);
 
+  const handleDoorToggle = useCallback(async () => {
+    if (!user) return;
+    
+    setDoorLoading(true);
+    try {
+      const doorDocRef = doc(db, "doors", "mainDoor");
+      const newState = !doorOpen;
+      
+      await setDoc(doorDocRef, {
+        isOpen: newState,
+        lastUpdated: new Date().toISOString(),
+        updatedBy: user.uid,
+      }, { merge: true });
+      
+      // State will be updated by the listener
+    } catch (error) {
+      console.error("Failed to update door state:", error);
+      Alert.alert("Error", "Failed to control door. Please try again.");
+    } finally {
+      setDoorLoading(false);
+    }
+  }, [doorOpen, user]);
+
   const handleLogout = useCallback(async () => {
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
       {
@@ -146,8 +194,6 @@ export default function HomeScreen() {
           setLoggingOut(true);
           try {
             await signOut(auth);
-            // Auth state change will automatically trigger redirect
-            // via useAuth context - no manual router.replace needed
           } catch (error) {
             console.error("Logout failed:", error);
             Alert.alert("Error", "Failed to sign out. Please try again.");
@@ -221,6 +267,93 @@ export default function HomeScreen() {
           )}
         </TouchableOpacity>
       </View>
+    </View>
+  );
+
+  const renderDoorControl = () => (
+    <View style={styles.section}>
+      <Text style={[styles.sectionTitle, { color: colors.text }]}>
+        Door Control
+      </Text>
+      <TouchableOpacity
+        style={[
+          styles.doorCard,
+          {
+            backgroundColor: doorOpen ? colors.success : colors.surface,
+            borderColor: doorOpen ? colors.success : colors.border,
+          },
+        ]}
+        onPress={handleDoorToggle}
+        disabled={doorLoading}
+        activeOpacity={0.7}
+      >
+        <View style={styles.doorCardContent}>
+          <View
+            style={[
+              styles.doorIcon,
+              {
+                backgroundColor: doorOpen
+                  ? "rgba(255, 255, 255, 0.2)"
+                  : `${colors.primary}12`,
+              },
+            ]}
+          >
+            {doorLoading ? (
+              <ActivityIndicator
+                size="small"
+                color={doorOpen ? "#FFF" : colors.primary}
+              />
+            ) : (
+              <Ionicons
+                name={doorOpen ? "lock-open" : "lock-closed"}
+                size={32}
+                color={doorOpen ? "#FFF" : colors.primary}
+              />
+            )}
+          </View>
+          <View style={styles.doorInfo}>
+            <Text
+              style={[
+                styles.doorTitle,
+                { color: doorOpen ? "#FFF" : colors.text },
+              ]}
+            >
+              Main Door
+            </Text>
+            <Text
+              style={[
+                styles.doorStatus,
+                {
+                  color: doorOpen
+                    ? "rgba(255, 255, 255, 0.9)"
+                    : colors.textSecondary,
+                },
+              ]}
+            >
+              {doorOpen ? "Currently Open" : "Currently Closed"}
+            </Text>
+          </View>
+        </View>
+        <View
+          style={[
+            styles.doorAction,
+            {
+              backgroundColor: doorOpen
+                ? "rgba(255, 255, 255, 0.2)"
+                : colors.primaryLight,
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.doorActionText,
+              { color: doorOpen ? "#FFF" : colors.primary },
+            ]}
+          >
+            {doorOpen ? "CLOSE" : "OPEN"}
+          </Text>
+        </View>
+      </TouchableOpacity>
     </View>
   );
 
@@ -358,7 +491,7 @@ export default function HomeScreen() {
     );
   }
 
-  // Not authenticated - No tabs shown
+  // Not authenticated
   if (!user) {
     return (
       <SafeAreaView
@@ -400,7 +533,7 @@ export default function HomeScreen() {
     );
   }
 
-  // Authenticated - Main content with tabs
+  // Authenticated - Main content
   return (
     <SafeAreaView
       style={[styles.safeArea, { backgroundColor: colors.background }]}
@@ -418,6 +551,7 @@ export default function HomeScreen() {
         }
       >
         {renderHeader()}
+        {renderDoorControl()}
         {renderStats()}
         {renderQuickAccess()}
         {renderSettings()}
@@ -533,6 +667,54 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 2,
+  },
+  // Door Control Styles
+  doorCard: {
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  doorCardContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  doorIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  doorInfo: {
+    flex: 1,
+  },
+  doorTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    marginBottom: 4,
+    letterSpacing: -0.3,
+  },
+  doorStatus: {
+    fontSize: 14,
+    fontWeight: "500",
+    letterSpacing: 0.1,
+  },
+  doorAction: {
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  doorActionText: {
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: 0.5,
   },
   statsContainer: {
     flexDirection: "row",
