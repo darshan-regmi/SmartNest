@@ -121,6 +121,7 @@ export default function HomeScreen() {
   const [loggingOut, setLoggingOut] = React.useState(false);
   const [stats, setStats] = React.useState({
     alerts: 0,
+    waterLevel: "0",
   });
 
   // Door control state
@@ -190,6 +191,27 @@ export default function HomeScreen() {
       }
     }, (error) => {
       console.error("Error listening to door state:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Listen to water level changes from Firestore
+  useEffect(() => {
+    if (!user) return;
+
+    const waterDocRef = doc(db, "waterTank", "water");
+
+    const unsubscribe = onSnapshot(waterDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setStats(prev => ({
+          ...prev,
+          waterLevel: data.waterlevel || "NaN"
+        }));
+      }
+    }, (error) => {
+      console.error("Error listening to water level:", error);
     });
 
     return () => unsubscribe();
@@ -327,9 +349,10 @@ export default function HomeScreen() {
 
   const loadDashboardData = useCallback(async () => {
     try {
-      setStats({
+      setStats(prev => ({
+        ...prev,
         alerts: 0,
-      });
+      }));
     } catch (error) {
       console.error("Failed to load dashboard data:", error);
     }
@@ -480,6 +503,17 @@ export default function HomeScreen() {
         value: stats.alerts,
         icon: "alert-circle",
         color: colors.primary,
+      },
+      {
+        id: "water",
+        label: "Water Level",
+        value: stats.waterLevel.charAt(0).toUpperCase() + stats.waterLevel.slice(1),
+        icon: "water",
+        color: stats.waterLevel.toLowerCase() === 'low'
+          ? colors.error
+          : stats.waterLevel.toLowerCase() === 'normal'
+            ? colors.success
+            : colors.primary,
       },
     ],
     [stats, colors]
