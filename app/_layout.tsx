@@ -1,6 +1,6 @@
-import React from "react";
 import { Stack } from "expo-router";
-import { useColorScheme } from "react-native";
+import React from "react";
+import { Platform, useColorScheme, View } from "react-native";
 import { AuthProvider, useAuth } from "../lib/authContext";
 
 // ============================================
@@ -33,14 +33,12 @@ function RootLayoutContent() {
   // Always render all screens, let navigation handle routing
   // Not authenticated users will see auth screen
   // Authenticated users will see tabs
-  return (
+  const content = (
     <Stack
       screenOptions={{
         headerShown: false,
-        animationEnabled: true,
-        cardStyle: {
-          backgroundColor: colors.background,
-        },
+        contentStyle: { backgroundColor: colors.background },
+
         gestureEnabled: false,
       }}
     >
@@ -84,6 +82,38 @@ function RootLayoutContent() {
       />
     </Stack>
   );
+
+  if (Platform.OS === "web") {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: isDark ? "#121212" : "#F0F0F0",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <View
+          style={{
+            width: "100%",
+            maxWidth: 600,
+            height: "100%",
+            backgroundColor: colors.background,
+            overflow: "hidden",
+            // Add a subtle shadow for desktop
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.1,
+            shadowRadius: 12,
+          }}
+        >
+          {content}
+        </View>
+      </View>
+    );
+  }
+
+  return content;
 }
 
 // ============================================

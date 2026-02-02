@@ -1,7 +1,7 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Alert, useColorScheme } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useAuth } from '../lib/authContext';
 import { signOut } from 'firebase/auth';
+import { Alert, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
+import { useAuth } from '../lib/authContext';
 import { auth } from '../lib/firebase';
 
 
@@ -284,7 +284,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     letterSpacing: -0.5,
-    marginBottom: 4,
   },
   headerSubtitle: {
     fontSize: 14,
@@ -294,7 +293,7 @@ const styles = StyleSheet.create({
     marginBottom: 28,
   },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
@@ -354,22 +353,17 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   menuItem: {
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 10,
     borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
   menuLeft: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 12,
     flex: 1,
   },
@@ -395,19 +389,20 @@ const styles = StyleSheet.create({
     letterSpacing: 0.1,
   },
   signOutButton: {
-    borderWidth: 1.5,
-    borderRadius: 12,
-    paddingVertical: 13,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 9,
-    marginVertical: 24,
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowRadius: 2,
+    elevation: 1,
   },
   signOutText: {
     fontSize: 14,

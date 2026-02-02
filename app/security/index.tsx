@@ -1,22 +1,23 @@
-import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  SafeAreaView,
-  TouchableOpacity,
-  ActivityIndicator,
-  useColorScheme,
-  useWindowDimensions,
-  Switch,
-  Alert,
-} from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
+import { collection, getDocs } from "firebase/firestore";
+import React, { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  useColorScheme,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { useAuth } from "../../lib/authContext";
 import { db } from "../../lib/firebase";
-import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 
 // ============================================
 // COLORS & DESIGN TOKENS
@@ -24,38 +25,32 @@ import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 
 const Colors = {
   light: {
-    background: "#FCFCF9",
-    surface: "#FFFFFF",
-    text: "#1F2121",
-    textSecondary: "#626C7C",
-    tertiary: "#8B93A1",
-    primary: "#208A95",
-    primaryLight: "#E0F7FA",
-    error: "#EF4444",
-    errorLight: "#FEE2E2",
-    success: "#10B981",
-    successLight: "#ECFDF5",
-    warning: "#F59E0B",
-    warningLight: "#FEF3C7",
-    border: "#E5E7EB",
-    overlay: "rgba(31, 33, 33, 0.04)",
+    background: '#FCFCF9',
+    surface: '#FFFFFF',
+    text: '#1F2121',
+    textSecondary: '#626C7C',
+    tertiary: '#8B93A1',
+    primary: '#208A95',
+    primaryLight: '#E0F7FA',
+    error: '#EF4444',
+    errorLight: '#FEE2E2',
+    success: '#10B981',
+    border: '#E5E7EB',
+    overlay: 'rgba(31, 33, 33, 0.04)',
   },
   dark: {
-    background: "#1F2121",
-    surface: "#2A2C2C",
-    text: "#F5F5F5",
-    textSecondary: "#A7A9A9",
-    tertiary: "#7A7E7E",
-    primary: "#32B8C6",
-    primaryLight: "#1B4D54",
-    error: "#FF5459",
-    errorLight: "#3B1A1C",
-    success: "#10B981",
-    successLight: "#1B3D2D",
-    warning: "#F59E0B",
-    warningLight: "#3B2F1A",
-    border: "#3A3C3C",
-    overlay: "rgba(255, 255, 255, 0.04)",
+    background: '#1F2121',
+    surface: '#2A2C2C',
+    text: '#F5F5F5',
+    textSecondary: '#A7A9A9',
+    tertiary: '#7A7E7E',
+    primary: '#32B8C6',
+    primaryLight: '#1B4D54',
+    error: '#FF5459',
+    errorLight: '#3B1A1C',
+    success: '#10B981',
+    border: '#3A3C3C',
+    overlay: 'rgba(255, 255, 255, 0.04)',
   },
 };
 
@@ -179,28 +174,7 @@ export default function SecurityScreen() {
   // RENDER METHODS
   // ============================================
 
-  const renderSecurityStat = (
-    icon: string,
-    label: string,
-    value: string | number,
-    color: string,
-    bgColor: string
-  ) => (
-    <View
-      style={[
-        styles.statCard,
-        { backgroundColor: colors.surface, borderColor: colors.border },
-      ]}
-    >
-      <View style={[styles.statIcon, { backgroundColor: bgColor }]}>
-        <Ionicons name={icon as any} size={24} color={color} />
-      </View>
-      <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
-      <Text style={[styles.statLabel, { color: colors.tertiary }]}>
-        {label}
-      </Text>
-    </View>
-  );
+
 
   // Loading state
   if (isLoading) {
@@ -248,7 +222,7 @@ export default function SecurityScreen() {
             </Text>
             <TouchableOpacity
               style={[styles.loginButton, { backgroundColor: colors.primary }]}
-              onPress={() => router.push("/auth")}
+              onPress={() => router.push("/auth" as any)}
               activeOpacity={0.85}
             >
               <Ionicons name="log-in" size={18} color="#FFF" />
@@ -283,57 +257,66 @@ export default function SecurityScreen() {
             <Ionicons name="arrow-back" size={20} color={colors.text} />
           </TouchableOpacity>
           <View style={styles.headerContent}>
-            <Text style={[styles.title, { color: colors.text }]}>Security</Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>Security</Text>
+            <Text style={[styles.headerSubtitle, { color: colors.tertiary }]}>
               Manage your access control settings
             </Text>
           </View>
         </View>
 
-        {/* Security Stats */}
-        <View style={styles.statsContainer}>
-          {renderSecurityStat(
-            "key",
-            "Active PINs",
-            pinCount,
-            colors.primary,
-            colors.primaryLight
-          )}
-          {renderSecurityStat(
-            "shield-checkmark",
-            "Status",
-            "Secure",
-            colors.success,
-            colors.successLight
-          )}
-          {renderSecurityStat(
-            "lock-closed",
-            "Locks",
-            "All Locked",
-            colors.warning,
-            colors.warningLight
-          )}
+        {/* Global Protection Summary */}
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.cardRow}>
+            <View style={[styles.cardIcon, { backgroundColor: colors.primaryLight }]}>
+              <Ionicons name="shield-checkmark" size={22} color={colors.primary} />
+            </View>
+            <View style={styles.cardContent}>
+              <Text style={[styles.cardLabel, { color: colors.tertiary }]}>System Status</Text>
+              <Text style={[styles.cardValue, { color: colors.success }]}>Partially Protected</Text>
+            </View>
+            <View style={styles.cardAddon}>
+              <View style={[styles.pinBadge, { backgroundColor: colors.primary }]}>
+                <Text style={styles.pinBadgeText}>{pinCount} PINs</Text>
+              </View>
+            </View>
+          </View>
         </View>
 
-
-        {/* Security Settings */}
+        {/* Access Control Section */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Security Settings
-          </Text>
+          <Text style={[styles.sectionTitle, { color: colors.tertiary }]}>Access Control</Text>
 
+          {/* Manage PINs */}
+          <TouchableOpacity
+            style={[styles.menuItem, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            activeOpacity={0.7}
+            onPress={() => router.push("/security/pins" as any)}
+          >
+            <View style={styles.menuLeft}>
+              <View style={[styles.menuIcon, { backgroundColor: colors.primaryLight }]}>
+                <Ionicons name="key" size={22} color={colors.primary} />
+              </View>
+              <View style={styles.menuContent}>
+                <Text style={[styles.menuTitle, { color: colors.text }]}>Manage PINs</Text>
+                <Text style={[styles.menuDesc, { color: colors.tertiary }]}>Create, edit, or delete access PINs</Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.tertiary} />
+          </TouchableOpacity>
+
+          {/* Settings Items */}
           {settings.map((setting) => (
             <View
               key={setting.id}
               style={[
-                styles.settingCard,
+                styles.menuItem,
                 { backgroundColor: colors.surface, borderColor: colors.border },
               ]}
             >
-              <View style={styles.settingLeft}>
+              <View style={styles.menuLeft}>
                 <View
                   style={[
-                    styles.settingIcon,
+                    styles.menuIcon,
                     { backgroundColor: colors.primaryLight },
                   ]}
                 >
@@ -343,12 +326,12 @@ export default function SecurityScreen() {
                     color={colors.primary}
                   />
                 </View>
-                <View style={styles.settingContent}>
-                  <Text style={[styles.settingTitle, { color: colors.text }]}>
+                <View style={styles.menuContent}>
+                  <Text style={[styles.menuTitle, { color: colors.text }]}>
                     {setting.title}
                   </Text>
                   <Text
-                    style={[styles.settingDesc, { color: colors.tertiary }]}
+                    style={[styles.menuDesc, { color: colors.tertiary }]}
                   >
                     {setting.description}
                   </Text>
@@ -361,6 +344,7 @@ export default function SecurityScreen() {
                   onValueChange={() => handleToggle(setting.id)}
                   trackColor={{ false: colors.border, true: colors.primary }}
                   thumbColor="#FFFFFF"
+                  style={Platform.OS === 'web' ? { cursor: 'pointer' } : {}}
                 />
               ) : (
                 <TouchableOpacity
@@ -378,75 +362,43 @@ export default function SecurityScreen() {
           ))}
         </View>
 
-        {/* Quick Actions */}
+        {/* Emergency Section */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Quick Actions
-          </Text>
+          <Text style={[styles.sectionTitle, { color: colors.tertiary }]}>Emergency</Text>
 
           <TouchableOpacity
-            style={[
-              styles.actionButton,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}
-            onPress={() => router.push("/(tabs)/devices")}
+            style={[styles.menuItem, { backgroundColor: colors.surface, borderColor: colors.border }]}
             activeOpacity={0.7}
+            onPress={() => Alert.alert("Emergency Lock", "All access points will be disabled immediately. Proceed?", [
+              { text: "Cancel", style: "cancel" },
+              { text: "Confirm", style: "destructive", onPress: () => Alert.alert("Confirmed", "All locks engaged.") }
+            ])}
           >
-            <View
-              style={[
-                styles.actionIcon,
-                { backgroundColor: colors.primaryLight },
-              ]}
-            >
-              <Ionicons name="key" size={22} color={colors.primary} />
+            <View style={styles.menuLeft}>
+              <View style={[styles.menuIcon, { backgroundColor: colors.errorLight }]}>
+                <Ionicons name="alert-circle" size={22} color={colors.error} />
+              </View>
+              <View style={styles.menuContent}>
+                <Text style={[styles.menuTitle, { color: colors.text }]}>Emergency Lock</Text>
+                <Text style={[styles.menuDesc, { color: colors.tertiary }]}>Disable all access points</Text>
+              </View>
             </View>
-            <View style={styles.actionContent}>
-              <Text style={[styles.actionTitle, { color: colors.text }]}>
-                Manage PINs
-              </Text>
-              <Text style={[styles.actionDesc, { color: colors.tertiary }]}>
-                Add or remove access codes
-              </Text>
-            </View>
-            <Ionicons
-              name="chevron-forward"
-              size={20}
-              color={colors.tertiary}
-            />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}
-            activeOpacity={0.7}
-          >
-            <View
-              style={[
-                styles.actionIcon,
-                { backgroundColor: colors.errorLight },
-              ]}
-            >
-              <Ionicons name="alert-circle" size={22} color={colors.error} />
-            </View>
-            <View style={styles.actionContent}>
-              <Text style={[styles.actionTitle, { color: colors.text }]}>
-                Emergency Lock
-              </Text>
-              <Text style={[styles.actionDesc, { color: colors.tertiary }]}>
-                Disable all access immediately
-              </Text>
-            </View>
-            <Ionicons
-              name="chevron-forward"
-              size={20}
-              color={colors.tertiary}
-            />
+            <Ionicons name="chevron-forward" size={20} color={colors.tertiary} />
           </TouchableOpacity>
         </View>
+
+        {/* Footer */}
+        <View style={[styles.footer, { borderTopColor: colors.border }]}>
+          <View style={[styles.footerIcon, { backgroundColor: colors.primaryLight }]}>
+            <Ionicons name="shield-checkmark" size={32} color={colors.primary} />
+          </View>
+          <Text style={[styles.footerTitle, { color: colors.text }]}>SmartNest Security</Text>
+          <Text style={[styles.footerText, { color: colors.tertiary }]}>
+            Your home is protected with 256-bit encryption{'\n'}and biometric authentication.
+          </Text>
+        </View>
       </ScrollView>
-    </SafeAreaView>
+    </SafeAreaView >
   );
 }
 
@@ -478,184 +430,121 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   header: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 28,
-    gap: 12,
+    paddingTop: 8,
+    paddingBottom: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
   },
   backButton: {
     width: 40,
     height: 40,
-    borderRadius: 10,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    flexShrink: 0,
   },
   headerContent: {
     flex: 1,
   },
-  title: {
+  headerTitle: {
     fontSize: 28,
-    fontWeight: "700",
+    fontWeight: '700',
     letterSpacing: -0.5,
     marginBottom: 4,
   },
-  subtitle: {
+  headerSubtitle: {
     fontSize: 14,
     letterSpacing: 0.1,
   },
-  statsContainer: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 20,
-  },
-  statCard: {
-    flex: 1,
-    borderRadius: 14,
-    padding: 14,
-    alignItems: "center",
+  card: {
+    padding: 16,
+    borderRadius: 20,
     borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
+    marginBottom: 24,
   },
-  statIcon: {
+  cardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  cardIcon: {
     width: 48,
     height: 48,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: "700",
-    letterSpacing: -0.3,
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 11,
-    fontWeight: "500",
-    letterSpacing: 0.2,
-    textAlign: "center",
-  },
-  alertCard: {
     borderRadius: 14,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    borderWidth: 1,
-    marginBottom: 28,
-    gap: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  alertIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    justifyContent: "center",
-    alignItems: "center",
-    flexShrink: 0,
-  },
-  alertContent: {
+  cardContent: {
     flex: 1,
   },
-  alertTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    letterSpacing: -0.1,
-    marginBottom: 3,
-  },
-  alertText: {
+  cardLabel: {
     fontSize: 12,
-    letterSpacing: 0.1,
-    lineHeight: 18,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  cardValue: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  cardAddon: {},
+  pinBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  pinBadgeText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
   section: {
-    marginBottom: 28,
+    marginBottom: 24,
+    gap: 12,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: -0.2,
-    marginBottom: 14,
-  },
-  settingCard: {
-    borderRadius: 14,
-    padding: 14,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    borderWidth: 1,
-    marginBottom: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  settingLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    flex: 1,
-  },
-  settingIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    justifyContent: "center",
-    alignItems: "center",
-    flexShrink: 0,
-  },
-  settingContent: {
-    flex: 1,
-  },
-  settingTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    letterSpacing: -0.1,
-    marginBottom: 4,
-  },
-  settingDesc: {
     fontSize: 12,
-    letterSpacing: 0.1,
-    lineHeight: 16,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginLeft: 4,
+    marginBottom: 4,
   },
-  actionButton: {
-    borderRadius: 14,
+  menuItem: {
     padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
+    borderRadius: 16,
     borderWidth: 1,
-    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
-  actionIcon: {
+  menuLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  menuIcon: {
     width: 44,
     height: 44,
     borderRadius: 10,
-    justifyContent: "center",
-    alignItems: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     flexShrink: 0,
   },
-  actionContent: {
+  menuContent: {
     flex: 1,
   },
-  actionTitle: {
+  menuTitle: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
     letterSpacing: -0.1,
     marginBottom: 4,
   },
-  actionDesc: {
+  menuDesc: {
     fontSize: 12,
     letterSpacing: 0.1,
   },
@@ -686,24 +575,50 @@ const styles = StyleSheet.create({
     letterSpacing: 0.1,
   },
   loginButton: {
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 32,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    marginTop: 24,
-    shadowColor: "#208A95",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 16,
+    gap: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
     elevation: 6,
+    ...Platform.select({ web: { cursor: 'pointer' } as any }),
   },
   loginButtonText: {
     color: "#FFF",
     fontSize: 15,
     fontWeight: "600",
     letterSpacing: 0.3,
+  },
+  footer: {
+    alignItems: 'center',
+    marginTop: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
+    borderTopWidth: 1,
+  },
+  footerIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  footerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+    marginBottom: 6,
+  },
+  footerText: {
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
+    letterSpacing: 0.1,
   },
 });

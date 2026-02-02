@@ -1,30 +1,32 @@
-import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  SafeAreaView,
-  TouchableOpacity,
-  Modal,
-  TextInput,
-  Alert,
-  FlatList,
-  ActivityIndicator,
-  useColorScheme,
-  useWindowDimensions,
-} from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
-import { useAuth } from "../../lib/authContext";
-import { db } from "../../lib/firebase";
 import {
   collection,
-  addDoc,
-  deleteDoc,
   doc,
-  getDocs,
+  onSnapshot,
+  setDoc,
+  updateDoc
 } from "firebase/firestore";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  useColorScheme,
+  useWindowDimensions,
+  View
+} from "react-native";
+import { useAuth } from "../../lib/authContext";
+import { db } from "../../lib/firebase";
+import { sendLocalNotificationAsync } from "../../lib/notificationService";
 
 // ============================================
 // COLORS & DESIGN TOKENS
@@ -66,30 +68,15 @@ const Colors = {
 };
 
 // ============================================
-// CONSTANTS
-// ============================================
-
-const DEVICES = [
-  {
-    id: 1,
-    name: "Front Door Lock",
-    type: "door",
-    status: "locked",
-    icon: "lock-closed",
-    deviceId: "front-door-lock",
-  },
-];
-
-// ============================================
 // TYPES
 // ============================================
 
-interface PIN {
+interface DeviceState {
   id: string;
-  code: string;
   name: string;
-  createdAt: Date;
-  firestoreId?: string;
+  type: "window" | "light" | "door";
+  status: boolean; // true for open/on, false for closed/off
+  icon: string;
 }
 
 // ============================================
@@ -105,192 +92,230 @@ export default function DevicesScreen() {
   const { height } = useWindowDimensions();
 
   // State
-  const [selectedDevice, setSelectedDevice] = useState<number | null>(null);
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pinCode, setPinCode] = useState("");
-  const [pinName, setPinName] = useState("");
-  const [pins, setPins] = useState<PIN[]>([]);
-  const [showPinList, setShowPinList] = useState(false);
+  const [windows, setWindows] = useState<DeviceState[]>([
+    { id: "living-room-window", name: "Living Room Window", type: "window", status: false, icon: "browsers" },
+    { id: "bedroom-window", name: "Bedroom Window", type: "window", status: false, icon: "browsers" },
+  ]);
+  const [lights, setLights] = useState<DeviceState[]>([
+    { id: "living-room-light", name: "Living Room Light", type: "light", status: false, icon: "sunny" },
+    { id: "kitchen-light", name: "Kitchen Light", type: "light", status: false, icon: "sunny" },
+  ]);
   const [loading, setLoading] = useState(false);
-  const [savingPin, setSavingPin] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  // Add Device Modal State
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newDeviceName, setNewDeviceName] = useState("");
+  const [newDeviceId, setNewDeviceId] = useState("");
+  const [newDeviceType, setNewDeviceType] = useState<"window" | "light">("window");
+  const [addingDevice, setAddingDevice] = useState(false);
+
+  // Notification refs
+  const isDeviceFirstLoad = useRef(true);
+  const prevDeviceStates = useRef<Record<string, boolean>>({});
 
   // ============================================
   // EFFECTS
   // ============================================
 
   useEffect(() => {
-    if (user?.uid) {
-      loadPinsFromFirestore();
-    }
+    if (!user?.uid) return;
+
+    // Listen to all devices
+    const devicesRef = collection(db, "devices");
+    const unsubscribe = onSnapshot(devicesRef, (snapshot) => {
+      const allDevices = snapshot.docs.map(doc => ({
+        id: doc.id,
+        name: doc.data().name || "Device",
+        type: doc.data().type as "window" | "light" | "door",
+        status: doc.data().isOpen || doc.data().isOn || false,
+        icon: doc.data().type === "window" ? "browsers" : (doc.data().type === "light" ? "sunny" : "lock-closed"),
+      }));
+
+      // Detect changes for notifications
+      if (!isDeviceFirstLoad.current) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === "modified") {
+            const data = change.doc.data();
+            const id = change.doc.id;
+            const type = data.type;
+            const name = data.name || (type === "window" ? "Window" : "Light");
+            const status = type === "window" ? data.isOpen : data.isOn;
+            const prevStatus = prevDeviceStates.current[id];
+
+            // Only notify for windows and lights, and if status actually changed
+            if (status !== prevStatus && (type === "window" || type === "light")) {
+              const statusText = type === "window"
+                ? (status ? "OPEN" : "CLOSED")
+                : (status ? "ON" : "OFF");
+
+              sendLocalNotificationAsync(
+                "Device Update",
+                `${name} is now ${statusText}`
+              );
+            }
+          }
+        });
+      }
+
+      // Update refs
+      const newStates: Record<string, boolean> = {};
+      allDevices.forEach(d => {
+        newStates[d.id] = d.status;
+      });
+      prevDeviceStates.current = newStates;
+      isDeviceFirstLoad.current = false;
+
+      // Split into windows and lights, excluding door which is handled on Home tab
+      setWindows(allDevices.filter(d => d.type === "window"));
+      setLights(allDevices.filter(d => d.type === "light"));
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, [user?.uid]);
 
   // ============================================
   // HANDLERS
   // ============================================
 
-  const loadPinsFromFirestore = async () => {
+  const handleToggle = async (device: DeviceState) => {
     if (!user?.uid) return;
 
-    setLoading(true);
+    setTogglingId(device.id);
     try {
-      const pinsRef = collection(db, "users", user.uid, "pins");
-      const querySnapshot = await getDocs(pinsRef);
+      const docRef = doc(db, "devices", device.id);
+      const field = device.type === "window" ? "isOpen" : "isOn";
 
-      const loadedPins: PIN[] = [];
-      querySnapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        loadedPins.push({
-          id: docSnap.id,
-          code: data.code,
-          name: data.name,
-          createdAt: data.createdAt?.toDate() || new Date(),
-          firestoreId: docSnap.id,
-        });
+      await updateDoc(docRef, {
+        [field]: !device.status,
+        lastUpdated: new Date().toISOString(),
+        updatedBy: user.uid,
       });
-
-      setPins(loadedPins);
     } catch (error) {
-      console.error("Error loading PINs:", error);
-      setPins([]);
+      console.error("Error toggling device:", error);
+      Alert.alert("Error", `Failed to ${device.status ? "turn off" : "turn on"} the ${device.type}.`);
     } finally {
-      setLoading(false);
+      setTogglingId(null);
     }
   };
 
-  const handleAddPin = async () => {
-    // Validation
-    if (!pinCode.trim()) {
-      Alert.alert("Error", "Please enter a PIN code");
-      return;
-    }
-    if (!pinName.trim()) {
-      Alert.alert("Error", "Please enter a PIN name");
-      return;
-    }
-    if (pinCode.length < 4 || pinCode.length > 8) {
-      Alert.alert("Error", "PIN must be between 4-8 digits");
-      return;
-    }
-    if (!/^\d+$/.test(pinCode)) {
-      Alert.alert("Error", "PIN must contain only numbers");
-      return;
-    }
-    if (pins.length >= 10) {
-      Alert.alert("Error", "Maximum 10 PINs allowed");
-      return;
-    }
-    if (pins.some((p) => p.code === pinCode)) {
-      Alert.alert("Error", "This PIN already exists");
-      return;
-    }
-
-    if (!user?.uid) {
-      Alert.alert("Error", "User not authenticated");
-      return;
-    }
-
-    setSavingPin(true);
-    try {
-      const pinsRef = collection(db, "users", user.uid, "pins");
-      const docRef = await addDoc(pinsRef, {
-        code: pinCode,
-        name: pinName,
-        deviceId: "front-door-lock",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-
-      const newPin: PIN = {
-        id: docRef.id,
-        code: pinCode,
-        name: pinName,
-        createdAt: new Date(),
-        firestoreId: docRef.id,
-      };
-
-      setPins([...pins, newPin]);
-      setPinCode("");
-      setPinName("");
-      setShowPinModal(false);
-
-      Alert.alert("Success", `PIN "${pinName}" added successfully!`);
-    } catch (error) {
-      console.error("Error adding PIN:", error);
-      Alert.alert("Error", "Failed to add PIN. Please try again.");
-    } finally {
-      setSavingPin(false);
-    }
-  };
-
-  const handleDeletePin = (id: string) => {
-    Alert.alert("Delete PIN", "Are you sure you want to delete this PIN?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => deletePin(id),
-      },
-    ]);
-  };
-
-  const deletePin = async (id: string) => {
+  const handleAddDevice = async () => {
     if (!user?.uid) return;
-
-    try {
-      const pinRef = doc(db, "users", user.uid, "pins", id);
-      await deleteDoc(pinRef);
-
-      setPins(pins.filter((p) => p.id !== id));
-      Alert.alert("Success", "PIN deleted successfully");
-    } catch (error) {
-      console.error("Error deleting PIN:", error);
-      Alert.alert("Error", "Failed to delete PIN");
+    if (!newDeviceName.trim() || !newDeviceId.trim()) {
+      Alert.alert("Error", "Please provide both a name and a custom ID.");
+      return;
     }
-  };
 
-  const closeModal = () => {
-    setShowPinModal(false);
-    setPinCode("");
-    setPinName("");
+    const cleanId = newDeviceId.trim().toLowerCase().replace(/\s+/g, '-');
+    const docRef = doc(db, "devices", cleanId);
+
+    setAddingDevice(true);
+    try {
+      const initialStatus = false;
+      const field = newDeviceType === "window" ? "isOpen" : "isOn";
+
+      await setDoc(docRef, {
+        name: newDeviceName.trim(),
+        [field]: initialStatus,
+        createdAt: new Date().toISOString(),
+        createdBy: user.uid,
+        type: newDeviceType,
+      });
+
+      Alert.alert("Success", `${newDeviceType === "window" ? "Window" : "Light"} added successfully!`);
+      setShowAddModal(false);
+      setNewDeviceName("");
+      setNewDeviceId("");
+    } catch (error) {
+      console.error("Error adding device:", error);
+      Alert.alert("Error", "Failed to add device. Please try again.");
+    } finally {
+      setAddingDevice(false);
+    }
   };
 
   // ============================================
   // RENDER METHODS
   // ============================================
 
-  const renderPinItem = ({ item }: { item: PIN }) => (
-    <View
+  const renderDeviceCard = (device: DeviceState) => (
+    <TouchableOpacity
+      key={device.id}
       style={[
-        styles.pinItem,
-        { backgroundColor: colors.surface, borderColor: colors.border },
+        styles.deviceCard,
+        {
+          backgroundColor: colors.surface,
+          borderColor: device.status ? colors.primary : colors.border,
+        },
       ]}
+      onPress={() => handleToggle(device)}
+      disabled={togglingId === device.id}
+      activeOpacity={0.7}
     >
-      <View style={styles.pinContent}>
-        <View
-          style={[styles.pinIcon, { backgroundColor: `${colors.primary}15` }]}
-        >
-          <Ionicons name="key" size={20} color={colors.primary} />
-        </View>
-        <View style={styles.pinInfo}>
-          <Text style={[styles.pinItemName, { color: colors.text }]}>
-            {item.name}
-          </Text>
-          <Text style={[styles.pinCode, { color: colors.textSecondary }]}>
-            ••••••
-          </Text>
-          <Text style={[styles.pinDate, { color: colors.tertiary }]}>
-            {item.createdAt.toLocaleDateString()}
-          </Text>
-        </View>
-      </View>
-      <TouchableOpacity
-        style={[styles.deleteButton, { backgroundColor: colors.errorLight }]}
-        onPress={() => handleDeletePin(item.id)}
-        activeOpacity={0.7}
+      <View
+        style={[
+          styles.deviceIcon,
+          { backgroundColor: device.status ? `${colors.primary}15` : colors.overlay },
+        ]}
       >
-        <Ionicons name="trash" size={18} color={colors.error} />
-      </TouchableOpacity>
-    </View>
+        <Ionicons
+          name={device.icon as any}
+          size={26}
+          color={device.status ? colors.primary : colors.tertiary}
+        />
+      </View>
+      <View style={styles.deviceContent}>
+        <Text style={[styles.deviceName, { color: colors.text }]}>
+          {device.name}
+        </Text>
+        <Text
+          style={[styles.deviceType, { color: colors.tertiary }]}
+        >
+          {device.type}
+        </Text>
+      </View>
+      <View
+        style={[
+          styles.statusBadge,
+          {
+            backgroundColor: device.status
+              ? colors.successLight
+              : colors.overlay,
+          },
+        ]}
+      >
+        {togglingId === device.id ? (
+          <ActivityIndicator size="small" color={colors.primary} />
+        ) : (
+          <>
+            <View
+              style={[
+                styles.statusDot,
+                {
+                  backgroundColor: device.status
+                    ? colors.success
+                    : colors.tertiary,
+                },
+              ]}
+            />
+            <Text
+              style={[
+                styles.statusText,
+                {
+                  color: device.status
+                    ? colors.success
+                    : colors.tertiary,
+                },
+              ]}
+            >
+              {device.type === "window" ? (device.status ? "Open" : "Closed") : (device.status ? "On" : "Off")}
+            </Text>
+          </>
+        )}
+      </View>
+    </TouchableOpacity>
   );
 
   // Loading state
@@ -309,7 +334,7 @@ export default function DevicesScreen() {
     );
   }
 
-  // Not authenticated - No tabs shown
+  // Not authenticated
   if (!user) {
     return (
       <SafeAreaView
@@ -335,11 +360,11 @@ export default function DevicesScreen() {
             <Text
               style={[styles.emptyDescription, { color: colors.textSecondary }]}
             >
-              Please sign in to access your smart devices and control pins.
+              Please sign in to access and control your smart devices.
             </Text>
             <TouchableOpacity
               style={[styles.loginButton, { backgroundColor: colors.primary }]}
-              onPress={() => router.push("/auth")}
+              onPress={() => router.push("/auth" as any)}
               activeOpacity={0.85}
             >
               <Ionicons name="log-in" size={18} color="#FFF" />
@@ -363,405 +388,137 @@ export default function DevicesScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={[styles.title, { color: colors.text }]}>
-            Your Devices
-          </Text>
+          <View style={styles.headerTitleRow}>
+            <View>
+              <Text style={[styles.title, { color: colors.text }]}>
+                Smart Control
+              </Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+                Manage your windows and lights
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.addButton, { backgroundColor: colors.primary }]}
+              onPress={() => setShowAddModal(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add" size={28} color="#FFF" />
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Loading State */}
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-              Loading PINs...
-            </Text>
+        {/* Windows Section */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Windows</Text>
+          <View style={styles.devicesGrid}>
+            {windows.map(renderDeviceCard)}
           </View>
-        ) : (
-          // Devices List
-          <View style={styles.devicesList}>
-            {DEVICES.map((device) => (
-              <View key={device.id}>
-                {/* Device Card */}
-                <TouchableOpacity
-                  style={[
-                    styles.deviceCard,
-                    {
-                      backgroundColor: colors.surface,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                  onPress={() =>
-                    setSelectedDevice(
-                      selectedDevice === device.id ? null : device.id
-                    )
-                  }
-                  activeOpacity={0.7}
-                >
-                  <View
-                    style={[
-                      styles.deviceIcon,
-                      { backgroundColor: `${colors.primary}15` },
-                    ]}
-                  >
-                    <Ionicons
-                      name={device.icon as any}
-                      size={26}
-                      color={colors.primary}
-                    />
-                  </View>
-                  <View style={styles.deviceContent}>
-                    <Text style={[styles.deviceName, { color: colors.text }]}>
-                      {device.name}
-                    </Text>
-                    <Text
-                      style={[styles.deviceType, { color: colors.tertiary }]}
-                    >
-                      {device.type}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      {
-                        backgroundColor:
-                          device.status === "on" || device.status === "locked"
-                            ? colors.successLight
-                            : colors.overlay,
-                      },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.statusDot,
-                        {
-                          backgroundColor:
-                            device.status === "on" || device.status === "locked"
-                              ? colors.success
-                              : colors.tertiary,
-                        },
-                      ]}
-                    />
-                    <Text
-                      style={[
-                        styles.statusText,
-                        {
-                          color:
-                            device.status === "on" || device.status === "locked"
-                              ? colors.success
-                              : colors.tertiary,
-                        },
-                      ]}
-                    >
-                      {device.status}
-                    </Text>
-                  </View>
-                  <Ionicons
-                    name={
-                      selectedDevice === device.id
-                        ? "chevron-up"
-                        : "chevron-down"
-                    }
-                    size={20}
-                    color={colors.tertiary}
-                  />
-                </TouchableOpacity>
+        </View>
 
-                {/* Expanded PIN Management Section */}
-                {selectedDevice === device.id && (
-                  <View style={styles.expandedSection}>
-                    <View
-                      style={[
-                        styles.pinManagementCard,
-                        {
-                          backgroundColor: colors.surface,
-                          borderColor: colors.border,
-                        },
-                      ]}
-                    >
-                      {/* PIN Management Header */}
-                      <View style={styles.pinHeader}>
-                        <View>
-                          <Text
-                            style={[
-                              styles.pinManagementTitle,
-                              { color: colors.text },
-                            ]}
-                          >
-                            PIN Management
-                          </Text>
-                          <Text
-                            style={[
-                              styles.pinManagementSubtitle,
-                              { color: colors.tertiary },
-                            ]}
-                          >
-                            {pins.length}/10 PINs configured
-                          </Text>
-                        </View>
-                        <View
-                          style={[
-                            styles.pinCountBadge,
-                            { backgroundColor: colors.primary },
-                          ]}
-                        >
-                          <Text style={styles.pinCount}>{pins.length}</Text>
-                        </View>
-                      </View>
-
-                      {/* Progress Bar */}
-                      <View
-                        style={[
-                          styles.progressBarContainer,
-                          { backgroundColor: colors.overlay },
-                        ]}
-                      >
-                        <View
-                          style={[
-                            styles.progressBar,
-                            {
-                              width: `${(pins.length / 10) * 100}%`,
-                              backgroundColor: colors.primary,
-                            },
-                          ]}
-                        />
-                      </View>
-
-                      {/* View/Hide Pins Button */}
-                      {pins.length > 0 ? (
-                        <TouchableOpacity
-                          style={[
-                            styles.listPinsButton,
-                            { backgroundColor: `${colors.primary}12` },
-                          ]}
-                          onPress={() => setShowPinList(!showPinList)}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons
-                            name={showPinList ? "chevron-up" : "chevron-down"}
-                            size={18}
-                            color={colors.primary}
-                          />
-                          <Text
-                            style={[
-                              styles.listPinsButtonText,
-                              { color: colors.primary },
-                            ]}
-                          >
-                            {showPinList ? "Hide" : "View"} Pins ({pins.length})
-                          </Text>
-                        </TouchableOpacity>
-                      ) : (
-                        <Text
-                          style={[
-                            styles.noPinsText,
-                            { color: colors.tertiary },
-                          ]}
-                        >
-                          No PINs added yet
-                        </Text>
-                      )}
-
-                      {/* Pins List */}
-                      {showPinList && pins.length > 0 && (
-                        <View style={styles.pinsList}>
-                          <FlatList
-                            data={pins}
-                            renderItem={renderPinItem}
-                            keyExtractor={(item) => item.id}
-                            scrollEnabled={false}
-                          />
-                        </View>
-                      )}
-
-                      {/* Add PIN Button */}
-                      <TouchableOpacity
-                        style={[
-                          styles.addPinButton,
-                          {
-                            backgroundColor:
-                              pins.length >= 10
-                                ? colors.overlay
-                                : colors.primary,
-                          },
-                        ]}
-                        onPress={() => setShowPinModal(true)}
-                        disabled={pins.length >= 10}
-                        activeOpacity={pins.length >= 10 ? 1 : 0.85}
-                      >
-                        <Ionicons
-                          name="add"
-                          size={20}
-                          color={pins.length >= 10 ? colors.tertiary : "#FFF"}
-                        />
-                        <Text
-                          style={[
-                            styles.addPinButtonText,
-                            pins.length >= 10 && {
-                              color: colors.tertiary,
-                            },
-                          ]}
-                        >
-                          {pins.length >= 10
-                            ? "Maximum PINs Reached"
-                            : "Add New PIN"}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-              </View>
-            ))}
+        {/* Lights Section */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Lights</Text>
+          <View style={styles.devicesGrid}>
+            {lights.map(renderDeviceCard)}
           </View>
-        )}
+        </View>
+
       </ScrollView>
 
-      {/* Add PIN Modal */}
+      {/* Add Device Modal */}
       <Modal
-        visible={showPinModal}
+        visible={showAddModal}
         transparent
         animationType="slide"
-        onRequestClose={closeModal}
+        onRequestClose={() => setShowAddModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View
-            style={[styles.modalContent, { backgroundColor: colors.surface }]}
-          >
-            {/* Modal Header */}
-            <View
-              style={[styles.modalHeader, { borderBottomColor: colors.border }]}
-            >
-              <Text style={[styles.modalTitle, { color: colors.text }]}>
-                Add New PIN
-              </Text>
-              <TouchableOpacity
-                onPress={closeModal}
-                disabled={savingPin}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="close" size={24} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Modal Body */}
-            <ScrollView style={styles.modalBody}>
-              {/* PIN Name Input */}
-              <View style={styles.inputGroup}>
-                <Text style={[styles.inputLabel, { color: colors.text }]}>
-                  PIN Name
-                </Text>
-                <TextInput
-                  style={[
-                    styles.textInput,
-                    {
-                      color: colors.text,
-                      borderColor: colors.border,
-                      backgroundColor: isDark ? colors.background : "#F9FAFB",
-                    },
-                  ]}
-                  placeholder="e.g., Guest, Cleaner, Family"
-                  placeholderTextColor={colors.tertiary}
-                  value={pinName}
-                  onChangeText={setPinName}
-                  maxLength={20}
-                  editable={!savingPin}
-                />
-                <Text style={[styles.inputHelp, { color: colors.tertiary }]}>
-                  {pinName.length}/20 characters
-                </Text>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={{ flex: 1 }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+              <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Add New Device</Text>
+                <TouchableOpacity onPress={() => setShowAddModal(false)}>
+                  <Ionicons name="close" size={24} color={colors.text} />
+                </TouchableOpacity>
               </View>
 
-              {/* PIN Code Input */}
-              <View style={styles.inputGroup}>
-                <Text style={[styles.inputLabel, { color: colors.text }]}>
-                  PIN Code
-                </Text>
-                <TextInput
-                  style={[
-                    styles.textInput,
-                    {
-                      color: colors.text,
-                      borderColor: colors.border,
-                      backgroundColor: isDark ? colors.background : "#F9FAFB",
-                    },
-                  ]}
-                  placeholder="4-8 digits"
-                  placeholderTextColor={colors.tertiary}
-                  value={pinCode}
-                  onChangeText={setPinCode}
-                  keyboardType="number-pad"
-                  maxLength={8}
-                  secureTextEntry
-                  editable={!savingPin}
-                />
-                <Text style={[styles.inputHelp, { color: colors.tertiary }]}>
-                  {pinCode.length}/8 digits
-                  {pinCode.length > 0 &&
-                    (pinCode.length >= 4 ? (
-                      <Text style={{ color: colors.success }}> ✓ Valid</Text>
-                    ) : (
-                      <Text style={{ color: colors.error }}>
-                        {" "}
-                        • Minimum 4 digits
-                      </Text>
-                    ))}
-                </Text>
-              </View>
+              <ScrollView style={styles.modalBody}>
+                {/* Device Type Selection */}
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.inputLabel, { color: colors.text }]}>Device Type</Text>
+                  <View style={styles.typeSelector}>
+                    <TouchableOpacity
+                      style={[
+                        styles.typeOption,
+                        newDeviceType === "window" && { backgroundColor: `${colors.primary}15`, borderColor: colors.primary }
+                      ]}
+                      onPress={() => setNewDeviceType("window")}
+                    >
+                      <Ionicons name="browsers" size={24} color={newDeviceType === "window" ? colors.primary : colors.tertiary} />
+                      <Text style={[styles.typeOptionText, { color: newDeviceType === "window" ? colors.primary : colors.tertiary }]}>Window</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.typeOption,
+                        newDeviceType === "light" && { backgroundColor: `${colors.primary}15`, borderColor: colors.primary }
+                      ]}
+                      onPress={() => setNewDeviceType("light")}
+                    >
+                      <Ionicons name="sunny" size={24} color={newDeviceType === "light" ? colors.primary : colors.tertiary} />
+                      <Text style={[styles.typeOptionText, { color: newDeviceType === "light" ? colors.primary : colors.tertiary }]}>Light</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
 
-              {/* Info Box */}
-              <View
-                style={[
-                  styles.infoBox,
-                  { backgroundColor: `${colors.primary}12` },
-                ]}
-              >
-                <Ionicons
-                  name="information-circle"
-                  size={18}
-                  color={colors.primary}
-                />
-                <Text style={[styles.infoText, { color: colors.primary }]}>
-                  PIN codes must be 4-8 digits. Numbers only, no special
-                  characters.
-                </Text>
-              </View>
-            </ScrollView>
+                {/* Device Name Input */}
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.inputLabel, { color: colors.text }]}>Device Name</Text>
+                  <TextInput
+                    style={[styles.textInput, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? colors.background : "#F9FAFB" }]}
+                    placeholder="e.g., Living Room Window"
+                    placeholderTextColor={colors.tertiary}
+                    value={newDeviceName}
+                    onChangeText={setNewDeviceName}
+                  />
+                </View>
 
-            {/* Modal Footer */}
-            <View
-              style={[styles.modalFooter, { borderTopColor: colors.border }]}
-            >
-              <TouchableOpacity
-                style={[styles.cancelButton, { borderColor: colors.border }]}
-                onPress={closeModal}
-                disabled={savingPin}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.cancelButtonText, { color: colors.text }]}>
-                  Cancel
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.createButton,
-                  { backgroundColor: colors.primary },
-                  savingPin && { opacity: 0.7 },
-                ]}
-                onPress={handleAddPin}
-                disabled={savingPin}
-                activeOpacity={0.85}
-              >
-                {savingPin ? (
-                  <ActivityIndicator color="#FFF" size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="add-circle" size={20} color="#FFF" />
-                    <Text style={styles.createButtonText}>Create PIN</Text>
-                  </>
-                )}
-              </TouchableOpacity>
+                {/* Device ID Input */}
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.inputLabel, { color: colors.text }]}>Device ID</Text>
+                  <TextInput
+                    style={[styles.textInput, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? colors.background : "#F9FAFB" }]}
+                    placeholder="e.g., room-1"
+                    placeholderTextColor={colors.tertiary}
+                    value={newDeviceId}
+                    onChangeText={setNewDeviceId}
+                    autoCapitalize="none"
+                  />
+                  <Text style={[styles.inputHelp, { color: colors.tertiary }]}>This ID will be used in the Firestore path</Text>
+                </View>
+              </ScrollView>
+
+              <View style={[styles.modalFooter, { borderTopColor: colors.border }]}>
+                <TouchableOpacity
+                  style={[styles.createButton, { backgroundColor: colors.primary }]}
+                  onPress={handleAddDevice}
+                  disabled={addingDevice}
+                >
+                  {addingDevice ? (
+                    <ActivityIndicator color="#FFF" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons name="add-circle" size={20} color="#FFF" />
+                      <Text style={styles.createButtonText}>Add Device</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -805,287 +562,75 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   subtitle: {
-    fontSize: 14,
-    fontWeight: "500",
-    letterSpacing: 0.2,
-  },
-  devicesList: {
-    gap: 12,
-  },
-  deviceCard: {
-    borderRadius: 14,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    gap: 12,
-  },
-  deviceIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  deviceContent: {
-    flex: 1,
-  },
-  deviceName: {
-    fontSize: 15,
-    fontWeight: "600",
-    letterSpacing: -0.2,
-    marginBottom: 3,
-  },
-  deviceType: {
-    fontSize: 13,
-    textTransform: "capitalize",
-    letterSpacing: 0.1,
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: "600",
-    textTransform: "capitalize",
-  },
-  expandedSection: {
-    marginTop: 12,
-    marginBottom: 12,
-  },
-  pinManagementCard: {
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-  },
-  pinHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 14,
-  },
-  pinManagementTitle: {
     fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: -0.2,
-    marginBottom: 3,
-  },
-  pinManagementSubtitle: {
-    fontSize: 12,
-    letterSpacing: 0.1,
-  },
-  pinCountBadge: {
-    borderRadius: 20,
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pinCount: {
-    color: "#FFF",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  progressBarContainer: {
-    height: 7,
-    borderRadius: 4,
-    marginBottom: 14,
-    overflow: "hidden",
-  },
-  progressBar: {
-    height: "100%",
-    borderRadius: 4,
-  },
-  noPinsText: {
-    fontSize: 13,
-    textAlign: "center",
-    paddingVertical: 12,
-    fontStyle: "italic",
-    letterSpacing: 0.1,
-  },
-  listPinsButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    marginBottom: 14,
-    gap: 8,
-  },
-  listPinsButtonText: {
-    fontSize: 13,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
-  pinsList: {
-    marginBottom: 14,
-    gap: 8,
-  },
-  pinItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-  },
-  pinContent: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 11,
-  },
-  pinIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 9,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  pinInfo: {
-    flex: 1,
-  },
-  pinItemName: {
-    fontSize: 13,
-    fontWeight: "600",
-    letterSpacing: -0.1,
-    marginBottom: 3,
-  },
-  pinCode: {
-    fontSize: 12,
     fontWeight: "500",
-    letterSpacing: 0.3,
-    marginBottom: 2,
-  },
-  pinDate: {
-    fontSize: 11,
     letterSpacing: 0.1,
   },
-  deleteButton: {
-    padding: 8,
-    borderRadius: 8,
-    flexShrink: 0,
+  section: {
+    marginBottom: 32,
   },
-  addPinButton: {
-    borderRadius: 12,
-    paddingVertical: 13,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  addPinButtonText: {
-    color: "#FFF",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "flex-end",
-  },
-  modalContent: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: "85%",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-  },
-  modalTitle: {
-    fontSize: 18,
+  sectionTitle: {
+    fontSize: 20,
     fontWeight: "700",
+    marginBottom: 16,
     letterSpacing: -0.3,
   },
-  modalBody: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+  devicesGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 16,
   },
-  inputGroup: {
-    marginBottom: 18,
+  deviceCard: {
+    width: "47.5%",
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  inputLabel: {
-    fontSize: 13,
+  deviceIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  deviceContent: {
+    marginBottom: 16,
+  },
+  deviceName: {
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 4,
+    letterSpacing: -0.2,
+  },
+  deviceType: {
+    fontSize: 12,
     fontWeight: "600",
-    letterSpacing: 0.2,
-    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
-  textInput: {
-    borderWidth: 1,
-    borderRadius: 12,
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 12,
-    paddingVertical: 11,
-    fontSize: 14,
-    marginBottom: 6,
-  },
-  inputHelp: {
-    fontSize: 12,
-    letterSpacing: 0.1,
-  },
-  infoBox: {
-    flexDirection: "row",
-    alignItems: "center",
+    paddingVertical: 8,
     borderRadius: 12,
-    padding: 12,
-    gap: 10,
+    gap: 8,
+    alignSelf: "flex-start",
   },
-  infoText: {
-    flex: 1,
-    fontSize: 12,
-    fontWeight: "500",
-    lineHeight: 18,
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
-  modalFooter: {
-    flexDirection: "row",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-  },
-  cancelButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
-  createButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-  },
-  createButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#FFF",
-    letterSpacing: 0.2,
+  statusText: {
+    fontSize: 13,
+    fontWeight: "700",
   },
   emptyState: {
     justifyContent: "center",
@@ -1127,11 +672,118 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 6,
+    ...Platform.select({ web: { cursor: "pointer" } }),
   },
   loginButtonText: {
     color: "#FFF",
     fontSize: 15,
     fontWeight: "600",
     letterSpacing: 0.3,
+  },
+  headerTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  addButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    elevation: 4,
+    ...Platform.select({ web: { cursor: "pointer" } }),
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    maxHeight: '80%',
+    ...Platform.select({
+      web: {
+        width: 600,
+        alignSelf: 'center',
+        borderBottomLeftRadius: 30, // Make it a floating card on web
+        borderBottomRightRadius: 30,
+        marginBottom: 40,
+      }
+    }),
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  modalBody: {
+    padding: 20,
+  },
+  inputGroup: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  textInput: {
+    height: 50,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+  },
+  inputHelp: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  typeSelector: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  typeOption: {
+    flex: 1,
+    height: 80,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  typeOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  modalFooter: {
+    padding: 20,
+    borderTopWidth: 1,
+  },
+  createButton: {
+    height: 54,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  createButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
