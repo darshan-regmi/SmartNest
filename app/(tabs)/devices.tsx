@@ -74,7 +74,7 @@ const Colors = {
 interface DeviceState {
   id: string;
   name: string;
-  type: "window" | "light" | "door";
+  type: "window" | "light" | "door" | "roof";
   status: boolean; // true for open/on, false for closed/off
   icon: string;
 }
@@ -92,14 +92,9 @@ export default function DevicesScreen() {
   const { height } = useWindowDimensions();
 
   // State
-  const [windows, setWindows] = useState<DeviceState[]>([
-    { id: "living-room-window", name: "Living Room Window", type: "window", status: false, icon: "browsers" },
-    { id: "bedroom-window", name: "Bedroom Window", type: "window", status: false, icon: "browsers" },
-  ]);
-  const [lights, setLights] = useState<DeviceState[]>([
-    { id: "living-room-light", name: "Living Room Light", type: "light", status: false, icon: "sunny" },
-    { id: "kitchen-light", name: "Kitchen Light", type: "light", status: false, icon: "sunny" },
-  ]);
+  const [windows, setWindows] = useState<DeviceState[]>([]);
+  const [lights, setLights] = useState<DeviceState[]>([]);
+  const [roofs, setRoofs] = useState<DeviceState[]>([]);
   const [loading, setLoading] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
@@ -107,7 +102,7 @@ export default function DevicesScreen() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newDeviceName, setNewDeviceName] = useState("");
   const [newDeviceId, setNewDeviceId] = useState("");
-  const [newDeviceType, setNewDeviceType] = useState<"window" | "light">("window");
+  const [newDeviceType, setNewDeviceType] = useState<"window" | "light" | "roof">("window");
   const [addingDevice, setAddingDevice] = useState(false);
 
   // Notification refs
@@ -127,9 +122,9 @@ export default function DevicesScreen() {
       const allDevices = snapshot.docs.map(doc => ({
         id: doc.id,
         name: doc.data().name || "Device",
-        type: doc.data().type as "window" | "light" | "door",
+        type: doc.data().type as "window" | "light" | "door" | "roof",
         status: doc.data().isOpen || doc.data().isOn || false,
-        icon: doc.data().type === "window" ? "browsers" : (doc.data().type === "light" ? "sunny" : "lock-closed"),
+        icon: doc.data().type === "window" ? "browsers" : (doc.data().type === "light" ? "sunny" : (doc.data().type === "roof" ? "home" : "lock-closed")),
       }));
 
       // Detect changes for notifications
@@ -143,9 +138,9 @@ export default function DevicesScreen() {
             const status = type === "window" ? data.isOpen : data.isOn;
             const prevStatus = prevDeviceStates.current[id];
 
-            // Only notify for windows and lights, and if status actually changed
-            if (status !== prevStatus && (type === "window" || type === "light")) {
-              const statusText = type === "window"
+            // Only notify for windows, lights, and roofs, and if status actually changed
+            if (status !== prevStatus && (type === "window" || type === "light" || type === "roof")) {
+              const statusText = (type === "window" || type === "roof")
                 ? (status ? "OPEN" : "CLOSED")
                 : (status ? "ON" : "OFF");
 
@@ -166,9 +161,10 @@ export default function DevicesScreen() {
       prevDeviceStates.current = newStates;
       isDeviceFirstLoad.current = false;
 
-      // Split into windows and lights, excluding door which is handled on Home tab
+      // Split into windows, lights, and roofs, excluding door which is handled on Home tab
       setWindows(allDevices.filter(d => d.type === "window"));
       setLights(allDevices.filter(d => d.type === "light"));
+      setRoofs(allDevices.filter(d => d.type === "roof"));
     });
 
     return () => {
@@ -186,7 +182,7 @@ export default function DevicesScreen() {
     setTogglingId(device.id);
     try {
       const docRef = doc(db, "devices", device.id);
-      const field = device.type === "window" ? "isOpen" : "isOn";
+      const field = (device.type === "window" || device.type === "roof") ? "isOpen" : "isOn";
 
       await updateDoc(docRef, {
         [field]: !device.status,
@@ -214,7 +210,7 @@ export default function DevicesScreen() {
     setAddingDevice(true);
     try {
       const initialStatus = false;
-      const field = newDeviceType === "window" ? "isOpen" : "isOn";
+      const field = (newDeviceType === "window" || newDeviceType === "roof") ? "isOpen" : "isOn";
 
       await setDoc(docRef, {
         name: newDeviceName.trim(),
@@ -224,7 +220,7 @@ export default function DevicesScreen() {
         type: newDeviceType,
       });
 
-      Alert.alert("Success", `${newDeviceType === "window" ? "Window" : "Light"} added successfully!`);
+      Alert.alert("Success", `${newDeviceType.charAt(0).toUpperCase() + newDeviceType.slice(1)} added successfully!`);
       setShowAddModal(false);
       setNewDeviceName("");
       setNewDeviceId("");
@@ -310,7 +306,7 @@ export default function DevicesScreen() {
                 },
               ]}
             >
-              {device.type === "window" ? (device.status ? "Open" : "Closed") : (device.status ? "On" : "Off")}
+              {(device.type === "window" || device.type === "roof") ? (device.status ? "Open" : "Closed") : (device.status ? "On" : "Off")}
             </Text>
           </>
         )}
@@ -394,7 +390,7 @@ export default function DevicesScreen() {
                 Smart Control
               </Text>
               <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-                Manage your windows and lights
+                Manage your windows, lights and roof
               </Text>
             </View>
             <TouchableOpacity
@@ -422,6 +418,16 @@ export default function DevicesScreen() {
             {lights.map(renderDeviceCard)}
           </View>
         </View>
+
+        {/* Roof Section */}
+        {roofs.length > 0 && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Roofs</Text>
+            <View style={styles.devicesGrid}>
+              {roofs.map(renderDeviceCard)}
+            </View>
+          </View>
+        )}
 
       </ScrollView>
 
@@ -469,6 +475,16 @@ export default function DevicesScreen() {
                     >
                       <Ionicons name="sunny" size={24} color={newDeviceType === "light" ? colors.primary : colors.tertiary} />
                       <Text style={[styles.typeOptionText, { color: newDeviceType === "light" ? colors.primary : colors.tertiary }]}>Light</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.typeOption,
+                        newDeviceType === "roof" && { backgroundColor: `${colors.primary}15`, borderColor: colors.primary }
+                      ]}
+                      onPress={() => setNewDeviceType("roof")}
+                    >
+                      <Ionicons name="home" size={24} color={newDeviceType === "roof" ? colors.primary : colors.tertiary} />
+                      <Text style={[styles.typeOptionText, { color: newDeviceType === "roof" ? colors.primary : colors.tertiary }]}>Roof</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
