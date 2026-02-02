@@ -1,13 +1,13 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getApp, getApps, initializeApp } from 'firebase/app';
+import { Platform } from "react-native";
+import { initializeApp, getApp, getApps } from "firebase/app";
 import {
-  getAuth,
+  initializeAuth,
   getReactNativePersistence,
-  initializeAuth
-} from 'firebase/auth';
-import { getDatabase } from 'firebase/database';
-import { getFirestore } from 'firebase/firestore';
-import { Platform } from 'react-native';
+  getAuth,
+} from "firebase/auth";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getFirestore } from "firebase/firestore";
+import { getDatabase } from "firebase/database";
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -19,18 +19,20 @@ const firebaseConfig = {
   databaseURL: process.env.EXPO_PUBLIC_FIREBASE_DATABASE_URL,
 };
 
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+// App initialization
+const app =
+  getApps().length === 0
+    ? initializeApp(firebaseConfig)
+    : getApp();
 
-// Initialize Auth with platform-specific persistence
-export const auth = (() => {
-  if (Platform.OS === 'web') {
-    return getAuth(app);
-  } else {
-    return initializeAuth(app, {
-      persistence: getReactNativePersistence(AsyncStorage),
-    });
-  }
-})();
+// ✅ Auth — ONE PATH ONLY
+export const auth =
+  Platform.OS === "web"
+    ? getAuth(app)
+    : initializeAuth(app, {
+        persistence: getReactNativePersistence(AsyncStorage),
+      });
 
+// Databases
 export const db = getFirestore(app);
 export const rtdb = getDatabase(app);

@@ -9,9 +9,8 @@ import {
   deleteDoc,
   doc,
   getDocs,
-  getFirestore,
   onSnapshot,
-  setDoc,
+  setDoc
 } from "firebase/firestore";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -33,11 +32,9 @@ import {
   View,
 } from "react-native";
 import { useAuth } from "../../lib/authContext";
-import { auth } from "../../lib/firebase";
+import { auth, db } from "../../lib/firebase";
 import { registerForPushNotificationsAsync, sendLocalNotificationAsync } from "../../lib/notificationService";
 
-// Initialize Firestore
-const db = getFirestore();
 
 // ============================================
 // COLORS & DESIGN TOKENS
