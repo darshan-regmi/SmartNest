@@ -121,7 +121,8 @@ export default function HomeScreen() {
   const [loggingOut, setLoggingOut] = React.useState(false);
   const [stats, setStats] = React.useState({
     alerts: 0,
-    waterLevel: "0",
+    waterLevel: "unknown" as "low" | "normal" | "high" | "unknown",
+    roomTemp: 0,
   });
 
   // Door control state
@@ -203,19 +204,64 @@ export default function HomeScreen() {
     const waterDocRef = doc(db, "waterTank", "water");
 
     const unsubscribe = onSnapshot(waterDocRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setStats(prev => ({
-          ...prev,
-          waterLevel: data.waterlevel || "NaN"
-        }));
+      if (!docSnap.exists()) {
+        console.warn("Water level document does not exist at path: waterTank/water");
+        return;
       }
+
+      const data = docSnap.data();
+      const raw = data?.waterlevel ?? data?.waterLevel;
+
+      console.log("Water level raw data received:", data);
+
+      let normalized: "low" | "normal" | "high" | "unknown" = "unknown";
+
+      if (typeof raw === "string") {
+        normalized = raw.trim().toLowerCase() as any;
+        if (!["low", "normal", "high"].includes(normalized)) {
+          normalized = "unknown";
+        }
+      }
+
+      setStats(prev => ({
+        ...prev,
+        waterLevel: normalized,
+      }));
     }, (error) => {
       console.error("Error listening to water level:", error);
     });
 
-    return () => unsubscribe();
+    return unsubscribe;
   }, [user]);
+
+  // Listen to temperature changes from Firestore
+  useEffect(() => {
+    if (!user) return;
+
+    const tempDocRef = doc(db, "temperature", "roomTemp");
+
+    const unsubscribe = onSnapshot(tempDocRef, (docSnap) => {
+      if (!docSnap.exists()) {
+        console.warn("Temperature document does not exist at path: temperature/roomTemp");
+        return;
+      }
+
+      const data = docSnap.data();
+      const temp = data?.temp ?? 0;
+
+      console.log("Temperature data received:", data);
+
+      setStats(prev => ({
+        ...prev,
+        roomTemp: temp,
+      }));
+    }, (error) => {
+      console.error("Error listening to temperature:", error);
+    });
+
+    return unsubscribe;
+  }, [user]);
+
 
   // ============================================
   // HANDLERS
@@ -498,22 +544,25 @@ export default function HomeScreen() {
   const statItems = useMemo<StatItem[]>(
     () => [
       {
-        id: "alerts",
-        label: "Alerts",
-        value: stats.alerts,
-        icon: "alert-circle",
-        color: colors.primary,
-      },
-      {
         id: "water",
         label: "Water Level",
-        value: stats.waterLevel.charAt(0).toUpperCase() + stats.waterLevel.slice(1),
+        value:
+          typeof stats.waterLevel === "string"
+            ? stats.waterLevel.charAt(0).toUpperCase() + stats.waterLevel.slice(1)
+            : "Unknown",
         icon: "water",
         color: stats.waterLevel.toLowerCase() === 'low'
           ? colors.error
           : stats.waterLevel.toLowerCase() === 'normal'
             ? colors.success
             : colors.primary,
+      },
+      {
+        id: "temperature",
+        label: "Room Temp",
+        value: `${stats.roomTemp}°C`,
+        icon: "thermometer",
+        color: stats.roomTemp > 30 ? colors.error : (stats.roomTemp > 25 ? colors.warning : colors.primary),
       },
     ],
     [stats, colors]
