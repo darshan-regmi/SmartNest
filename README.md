@@ -24,7 +24,7 @@ A cross-platform mobile application for smart home automation, built with React 
 ## Prerequisites
 
 - Node.js (v14 or higher)
-- npm or yarn
+- pnpm
 - Expo CLI
 - iOS Simulator (for macOS) or Android Emulator
 - Firebase account with a configured project
@@ -41,7 +41,7 @@ cd SmartNest
 1. **Install dependencies**
 
 ```bash
-npm install
+pnpm install
 ```
 
 1. **Configure Firebase**
@@ -53,19 +53,19 @@ npm install
 2. **Start the development server**
 
 ```bash
-npm start
+pnpm start
 ```
 
 ## Available Scripts
 
-- `npm start` - Start the Expo development server
-- `npm run android` - Run on Android emulator/device
-- `npm run ios` - Run on iOS simulator/device
-- `npm run web` - Run in web browser
-- `npm run web:build` - Build for web deployment
-- `npm run web:serve` - Build and serve web version locally
-- `npm run lint` - Run ESLint for code quality
-- `npm run type-check` - Run TypeScript type checking
+- `pnpm start` - Start the Expo development server
+- `pnpm run android` - Run on Android emulator/device
+- `pnpm run ios` - Run on iOS simulator/device
+- `pnpm run web` - Run in web browser
+- `pnpm run web:build` - Build for web deployment
+- `pnpm run web:serve` - Build and serve web version locally
+- `pnpm run lint` - Run ESLint for code quality
+- `pnpm run type-check` - Run TypeScript type checking
 
 ## Project Structure
 
@@ -135,7 +135,7 @@ eas build --platform ios
 ### Web
 
 ```bash
-npm run web:build
+pnpm run web:build
 ```
 
 ## Hardware Integration
